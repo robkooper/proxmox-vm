@@ -17,3 +17,6 @@ pycdlib>=1.14.0
 
 # NetBox API client for IP and DNS management
 pynetbox>=7.0.0
+
+# Password hashing (cross-platform alternative to crypt module)
+passlib[bcrypt]>=1.7.4

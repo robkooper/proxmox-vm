@@ -8,7 +8,6 @@ and node selection.
 
 import base64
 import configparser
-import crypt
 import ipaddress
 import logging
 import secrets
@@ -17,6 +16,7 @@ import sys
 import yaml
 from typing import Dict, List, Optional, Tuple
 from proxmoxer import ProxmoxAPI
+from passlib.context import CryptContext
 
 # Configure logging
 # Use a logger named after the module
@@ -449,6 +449,8 @@ def encrypt_password(plain_password: str) -> str:
     """
     Encrypt a plaintext password using SHA-512 (same format as mkpasswd)
     
+    Uses passlib for cross-platform compatibility (works on macOS, Linux, Windows)
+    
     Args:
         plain_password: Plaintext password to encrypt
     
@@ -456,17 +458,18 @@ def encrypt_password(plain_password: str) -> str:
         Encrypted password hash in format: $6$rounds=4096$salt$hash
     
     Raises:
-        OSError: If crypt module is not available (e.g., on Windows)
+        ImportError: If passlib is not installed
     """
-    # Generate a random salt (16 characters using base64 alphabet)
-    # mkpasswd uses base64-like encoding: A-Z, a-z, 0-9, . and /
-    # Generate 12 random bytes which gives us 16 base64 characters
-    salt_bytes = secrets.token_bytes(12)
-    # Use standard base64 encoding, but limit to 16 chars as mkpasswd does
-    salt = base64.b64encode(salt_bytes).decode('ascii')[:16]
-    # Use SHA-512 with 4096 rounds (same as mkpasswd default)
-    # Format: $6$rounds=4096$salt$
-    return crypt.crypt(plain_password, f"$6$rounds=4096${salt}$")
+    try:
+        # Create a crypt context for SHA-512 with 4096 rounds (same as mkpasswd default)
+        crypt_context = CryptContext(schemes=['sha512_crypt'], sha512_crypt__rounds=4096)
+        # Hash the password - this produces format: $6$rounds=4096$salt$hash
+        return crypt_context.hash(plain_password)
+    except ImportError:
+        raise ImportError(
+            "passlib is required for password encryption. "
+            "Install it with: pip install 'passlib[bcrypt]'"
+        )
 
 
 def generate_cloud_init_config(
