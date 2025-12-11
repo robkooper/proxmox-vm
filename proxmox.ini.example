@@ -1,0 +1,64 @@
+# Proxmox Configuration File
+# Copy this file to proxmox.ini and fill in your details
+
+[proxmox]
+# Proxmox API endpoint (e.g., https://proxmox.example.com:8006)
+host = https://your-proxmox-host:8006
+# Verify SSL certificate (default: true for security)
+# Set to false ONLY for self-signed certificates in lab/development environments
+# WARNING: Disabling SSL verification makes you vulnerable to MITM attacks
+verify_ssl = true
+# API request timeout in seconds (default: 30, increase if you get timeout errors)
+timeout = 30
+
+[auth]
+# Authentication Method 1: API Token (recommended)
+# Create a token in Proxmox: Datacenter -> Permissions -> API Tokens
+# Format: user@realm!tokenid (e.g., root@pam!mytoken)
+token_id = 
+token_secret = 
+
+# Authentication Method 2: Username and Password
+# Leave token_id and token_secret empty to use username/password
+# user = root@pam
+# password = 
+
+[defaults]
+# Default storage for VM disks (e.g., local-lvm, ceph-storage)
+storage = local-lvm
+# Default network bridge (usually vmbr0)
+bridge = vmbr0
+# VM ID range - script will find next available ID in this range
+vmid_min = 100
+vmid_max = 999
+# Puppet server hostname/IP (leave empty if not using puppet)
+puppet_server = 
+# Default number of CPU cores
+cores = 2
+# Default memory in MB
+memory = 2048
+# Default disk size in GB
+disk_size = 20
+
+[netbox]
+# NetBox integration (optional)
+# Leave this section empty or remove it to disable NetBox integration
+
+# NetBox API URL (e.g., https://netbox.example.com)
+url = 
+# NetBox API token (create one in NetBox: Admin → API Tokens)
+token = 
+
+# Common settings (required for NetBox integration)
+# Subnet/mask in CIDR notation (e.g., 192.168.1.0/24)
+# The script will find an available IP address from this subnet
+subnet = 
+# DNS domain name (e.g., example.com)
+# Used for creating DNS records and full FQDN
+domain = 
+# DNS servers (space-separated list, e.g., 8.8.8.8 8.8.4.4)
+# These will be configured in the VM's network settings
+dns_servers = 
+# Tenant slug (optional)
+# IP addresses will be assigned to this tenant in NetBox
+tenant =
