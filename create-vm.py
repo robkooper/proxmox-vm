@@ -31,6 +31,8 @@ from proxmox_utils import (
     print_info,
     connect_netbox,
     check_hostname_available,
+    check_hostname_in_dns,
+    check_ip_assigned_to_hostname,
     get_available_ip_from_subnet,
     create_ip_address_in_netbox,
     create_dns_record_in_netbox,
@@ -430,6 +432,21 @@ def setup_netbox_ip(config: ProxmoxConfig, name: str, vmid: int) -> tuple:
                 print_info(f"Using gateway: {gateway}")
         except Exception as e:
             raise NetboxError(f"Error formatting IP address: {e}") from e
+        
+        # Check if IP is already assigned to a different hostname in NetBox
+        print_info(f"Checking if IP {ip_address_raw} is already assigned to a different hostname...")
+        is_conflict, existing_hostname = check_ip_assigned_to_hostname(nb, ip_with_cidr, name, netbox_domain)
+        if is_conflict:
+            full_hostname = f"{name}.{netbox_domain}" if netbox_domain else name
+            raise NetboxError(
+                f"IP address {ip_address_raw} is already assigned to hostname '{existing_hostname}' in NetBox. "
+                f"Cannot assign it to '{full_hostname}'. Please choose a different IP or hostname."
+            )
+        if existing_hostname:
+            # IP is assigned to the same hostname - that's OK
+            print_success(f"IP {ip_address_raw} is already assigned to '{existing_hostname}' (matches expected hostname)")
+        else:
+            print_success(f"IP {ip_address_raw} is not assigned to any hostname - OK to proceed")
         
         # Create IP address record in NetBox (pass prefix_obj to use available_ips endpoint)
         # This MUST succeed - stop if it fails to prevent duplicate IPs
@@ -1001,6 +1018,18 @@ def create_vm(
     if not validate_os_name(os_name):
         supported = ', '.join(sorted(IMAGES.keys()))
         raise ValueError(f"Unsupported OS: {os_name}. Supported: {supported}")
+    
+    # Check if hostname exists in DNS before proceeding
+    print_info(f"Checking if hostname '{name}' exists in DNS...")
+    domain = config.get_netbox_domain() if config.has_netbox_config() else None
+    if check_hostname_in_dns(name, domain):
+        full_hostname = f"{name}.{domain}" if domain else name
+        raise NetboxConfigurationError(
+            f"Hostname '{name}' already exists in DNS"
+            + (f" (Full hostname: {full_hostname})" if domain else "")
+            + ". Please choose a different hostname."
+        )
+    print_success(f"Hostname '{name}' is not in DNS - OK to proceed")
     
     storage = config.get_storage()
     

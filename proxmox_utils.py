@@ -12,6 +12,7 @@ import crypt
 import ipaddress
 import logging
 import secrets
+import socket
 import sys
 import yaml
 from typing import Dict, List, Optional, Tuple
@@ -676,17 +677,121 @@ def connect_netbox(url: str, token: str):
         raise NetboxDependencyError("pynetbox library not installed. Install it with: pip install pynetbox")
     
     nb = pynetbox.api(url, token=token)
-    # Test connection by trying a simple API call
+    # Test connection using the status endpoint (lightweight and purpose-built)
     try:
-        # Try to query a simple endpoint to verify authentication
-        # Use prefixes endpoint which should always be available
-        prefixes = nb.ipam.prefixes.all()
-        # Get first item to trigger actual API call and verify connection
-        next(iter(prefixes), None)
+        # Use the status endpoint to verify connection and authentication
+        # This is more efficient than querying data endpoints
+        nb.status()
     except Exception as e:
         raise NetboxConnectionError(f"Failed to connect to NetBox: {e}") from e
     
     return nb
+
+
+def check_ip_assigned_to_hostname(nb, ip_address: str, expected_hostname: str, domain: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+    """
+    Check if an IP address is already assigned to a hostname in NetBox
+    
+    Args:
+        nb: NetBox API instance
+        ip_address: IP address to check (can be with or without CIDR)
+        expected_hostname: The hostname we want to assign this IP to
+        domain: Optional domain name (full FQDN will be hostname.domain)
+    
+    Returns:
+        Tuple of (is_conflict, existing_hostname)
+        - is_conflict: True if IP is assigned to a different hostname, False otherwise
+        - existing_hostname: The hostname currently assigned to this IP (None if not assigned or matches expected)
+    """
+    try:
+        # Extract IP without CIDR for lookup
+        ip_without_cidr = ip_address.split('/')[0]
+        expected_full_hostname = f"{expected_hostname}.{domain}" if domain else expected_hostname
+        
+        # Try to find IP address in NetBox
+        # Try with CIDR first, then without
+        ip_variants = [ip_address]
+        if '/' not in ip_address:
+            # Try to find what CIDR this IP might have
+            try:
+                all_ips = nb.ipam.ip_addresses.filter(address__icontains=ip_without_cidr)
+                for ip_obj in all_ips:
+                    ip_str = str(ip_obj.address).split('/')[0]
+                    if ip_str == ip_without_cidr:
+                        ip_variants.append(str(ip_obj.address))
+                        break
+            except Exception:
+                pass
+        
+        # Check all IP variants
+        for ip_variant in ip_variants:
+            try:
+                ip_addresses = nb.ipam.ip_addresses.filter(address=ip_variant)
+                ip_list = list(ip_addresses)
+                
+                if ip_list:
+                    # IP exists - check the DNS name
+                    ip_obj = ip_list[0]
+                    existing_dns_name = getattr(ip_obj, 'dns_name', None) or ''
+                    
+                    if existing_dns_name:
+                        # IP is assigned to a hostname
+                        if existing_dns_name.lower() != expected_full_hostname.lower() and existing_dns_name.lower() != expected_hostname.lower():
+                            # Different hostname - this is a conflict
+                            return (True, existing_dns_name)
+                        # Same hostname - no conflict
+                        return (False, existing_dns_name)
+                    else:
+                        # IP exists but no DNS name - might be reserved or unassigned
+                        # This is OK, we can assign it
+                        return (False, None)
+            except Exception:
+                continue
+        
+        # IP not found in NetBox - no conflict
+        return (False, None)
+        
+    except Exception as e:
+        # On error, assume no conflict (safer to proceed than to block)
+        print_error(f"Error checking IP assignment in NetBox: {e}")
+        return (False, None)
+
+
+def check_hostname_in_dns(hostname: str, domain: Optional[str] = None) -> bool:
+    """
+    Check if a hostname exists in DNS
+    
+    Performs a DNS lookup to see if the hostname resolves to an IP address.
+    This checks actual DNS, not just NetBox records.
+    
+    Args:
+        hostname: Hostname to check
+        domain: Optional domain name (full FQDN will be hostname.domain)
+    
+    Returns:
+        True if hostname exists in DNS (resolves to an IP), False if it doesn't exist
+    """
+    # Try both hostname alone and with domain
+    hostnames_to_check = [hostname]
+    if domain:
+        full_hostname = f"{hostname}.{domain}"
+        hostnames_to_check.append(full_hostname)
+    
+    for hostname_to_check in hostnames_to_check:
+        try:
+            # Try to resolve the hostname
+            socket.gethostbyname(hostname_to_check)
+            # If we get here, the hostname exists in DNS
+            return True
+        except socket.gaierror:
+            # Hostname doesn't exist in DNS - this is what we want
+            continue
+        except Exception:
+            # Other errors (network issues, etc.) - assume it doesn't exist
+            continue
+    
+    # None of the hostnames resolved
+    return False
 
 
 def check_hostname_available(nb, hostname: str, domain: Optional[str] = None) -> bool:
