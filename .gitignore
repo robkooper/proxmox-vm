@@ -4,6 +4,9 @@ proxmox.ini
 # Internal issue tracking
 ISSUES.md
 
+# Scan results
+subnet-scan.csv
+
 # Python
 __pycache__/
 *.py[cod]
