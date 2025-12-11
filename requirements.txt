@@ -20,3 +20,6 @@ pynetbox>=7.0.0
 
 # Password hashing (cross-platform alternative to crypt module)
 passlib[bcrypt]>=1.7.4
+
+# DNS queries with custom DNS server
+dnspython>=2.4.0

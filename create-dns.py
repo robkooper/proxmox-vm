@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Set IP address for a hostname in NetBox
+Create DNS record in NetBox
 
 Usage:
-    setip.py <hostname> <ip_address>
+    create-dns.py <hostname> <ip_address>
 
 Example:
-    setip.py myserver 192.168.1.100
+    create-dns.py myserver 192.168.1.100
 
 The script will create/update an IP address in NetBox:
 - If domain is configured in proxmox.ini: uses FQDN (hostname.domain)
@@ -169,12 +169,12 @@ def set_ip_address(nb, hostname: str, ip_address: str, domain: Optional[str] = N
     except Exception:
         pass  # Continue if check fails
     
-    # If IP record exists for this hostname, update it
+    # If IP record exists for this hostname, check if it matches
     if existing_list:
         try:
-            # If multiple IPs exist for this hostname, update the first one and remove others
-            ip_obj_to_update = existing_list[0]
-            current_ip = str(ip_obj_to_update.address).split('/')[0]
+            # If multiple IPs exist for this hostname, check the first one
+            ip_obj_to_check = existing_list[0]
+            current_ip = str(ip_obj_to_check.address).split('/')[0]
             
             # If the IP is already correct, just verify and return
             if current_ip == ip_address:
@@ -184,32 +184,13 @@ def set_ip_address(nb, hostname: str, ip_address: str, domain: Optional[str] = N
                     print_success(f"IP address for {full_hostname} is already set to {ip_with_cidr}")
                 return True
             
-            # Update the IP address
-            ip_obj_to_update.address = ip_with_cidr
-            ip_obj_to_update.dns_name = full_hostname
-            if tenant_id:
-                ip_obj_to_update.tenant = tenant_id
-            # Associate with prefix if we found one
-            if prefix_obj:
-                ip_obj_to_update.prefix = prefix_obj.id
-            ip_obj_to_update.save()
-            
-            # Remove any other IP records for this hostname (if multiple exist)
-            if len(existing_list) > 1:
-                for other_ip in existing_list[1:]:
-                    try:
-                        other_ip.delete()
-                        print_info(f"Removed duplicate IP record: {other_ip.address}")
-                    except Exception:
-                        pass  # Continue if deletion fails
-            
-            if domain:
-                print_success(f"Updated IP address for {full_hostname} (FQDN) to {ip_with_cidr}")
-            else:
-                print_success(f"Updated IP address for {full_hostname} to {ip_with_cidr}")
-            return True
+            # Hostname exists with a different IP - error out
+            print_error(f"Hostname '{full_hostname}' already exists in NetBox with IP address {current_ip}")
+            print_error(f"Cannot assign different IP {ip_address} to existing hostname")
+            print_error(f"Use delete-dns.py to remove the existing record first, or use a different hostname")
+            return False
         except Exception as e:
-            print_error(f"Error updating IP address: {e}")
+            print_error(f"Error checking existing IP address: {e}")
             return False
     
     # Create new IP address record
@@ -217,7 +198,6 @@ def set_ip_address(nb, hostname: str, ip_address: str, domain: Optional[str] = N
         ip_data = {
             'address': ip_with_cidr,
             'dns_name': full_hostname,  # FQDN if domain provided, otherwise just hostname
-            'description': f"Set by setip.py script for {hostname}",
             'status': 'active'
         }
         
@@ -253,8 +233,8 @@ def set_ip_address(nb, hostname: str, ip_address: str, domain: Optional[str] = N
 
 def main():
     if len(sys.argv) != 3:
-        print_error("Usage: setip.py <hostname> <ip_address>")
-        print_error("Example: setip.py myserver 192.168.1.100")
+        print_error("Usage: create-dns.py <hostname> <ip_address>")
+        print_error("Example: create-dns.py myserver 192.168.1.100")
         print_error("Note: If domain is configured in proxmox.ini, FQDN (hostname.domain) will be used")
         sys.exit(1)
     

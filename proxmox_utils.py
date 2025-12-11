@@ -1026,7 +1026,6 @@ def create_ip_address_in_netbox(nb, ip_address: str, hostname: str, domain: Opti
                 ip_with_cidr = f"{ip_address}/32"
         
         full_hostname = f"{hostname}.{domain}" if domain else hostname
-        ip_description = description or f"VM: {hostname}"
         
         # Try method 1: Use available_ips endpoint if we have the prefix (preferred method)
         if prefix_obj and hasattr(prefix_obj, 'available_ips'):
@@ -1034,8 +1033,7 @@ def create_ip_address_in_netbox(nb, ip_address: str, hostname: str, domain: Opti
                 # Create IP using the prefix's available_ips endpoint
                 # This automatically assigns an available IP and associates it with the prefix
                 result = prefix_obj.available_ips.create({
-                    'dns_name': full_hostname,
-                    'description': ip_description
+                    'dns_name': full_hostname
                 })
                 created_ip = result.address if hasattr(result, 'address') else str(result)
                 print_success(f"Created IP address {created_ip} in NetBox with DNS name {full_hostname}")
@@ -1057,8 +1055,7 @@ def create_ip_address_in_netbox(nb, ip_address: str, hostname: str, domain: Opti
         # Method 2: Direct IP address creation
         ip_data = {
             'address': ip_with_cidr,
-            'dns_name': full_hostname,
-            'description': ip_description
+            'dns_name': full_hostname
         }
         
         try:
@@ -1087,10 +1084,7 @@ def create_ip_address_in_netbox(nb, ip_address: str, hostname: str, domain: Opti
                         # Check if DNS name matches
                         current_dns = getattr(ip_obj, 'dns_name', None) or ''
                         if current_dns == full_hostname or current_dns == hostname:
-                            # Same hostname - update description if needed (this is OK, maybe script was run twice)
-                            if description and (not hasattr(ip_obj, 'description') or ip_obj.description != description):
-                                ip_obj.description = description
-                                ip_obj.save()
+                            # Same hostname - already exists (this is OK, maybe script was run twice)
                             print_success(f"IP address {ip_with_cidr} already exists in NetBox for {full_hostname} - verified")
                             return True
                         else:

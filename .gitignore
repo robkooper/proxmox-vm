@@ -6,6 +6,7 @@ ISSUES.md
 
 # Scan results
 subnet-scan.csv
+ping-subnet.py
 
 # Python
 __pycache__/
