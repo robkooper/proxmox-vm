@@ -386,45 +386,110 @@ def create_ip_address_in_netbox(nb, ip_address: str, hostname: str, domain: Opti
         
         full_hostname = f"{hostname}.{domain}" if domain else hostname
         
+        # Log tenant information for debugging
+        if tenant_id:
+            logger.info(f"→ Creating IP address with tenant ID: {tenant_id}")
+        else:
+            logger.warning(f"→ Creating IP address WITHOUT tenant (tenant_id is None)")
+            logger.warning(f"→ If you get permission errors, ensure tenant is configured in your config file")
+        
         # Try method 1: Use available_ips endpoint if we have the prefix (preferred method)
         if prefix_obj and hasattr(prefix_obj, 'available_ips'):
-            try:
-                # Create IP using the prefix's available_ips endpoint
-                # This automatically assigns an available IP and associates it with the prefix
-                available_ip_data = {
-                    'dns_name': full_hostname
-                }
-                # Add tenant if provided
-                if tenant_id:
-                    available_ip_data['tenant'] = tenant_id
-                result = prefix_obj.available_ips.create(available_ip_data)
-                created_ip = result.address if hasattr(result, 'address') else str(result)
-                logger.info(f"✓ Created IP address {created_ip} in NetBox with DNS name {full_hostname}")
+            # Try available_ips endpoint with tenant (if provided)
+            available_ip_created = False
+            if tenant_id:
+                # Try with tenant as ID first
+                try:
+                    available_ip_data = {
+                        'dns_name': full_hostname,
+                        'tenant': tenant_id
+                    }
+                    logger.info(f"→ Attempting to create IP via available_ips endpoint with tenant ID: {tenant_id}")
+                    result = prefix_obj.available_ips.create(available_ip_data)
+                    created_ip = result.address if hasattr(result, 'address') else str(result)
+                    logger.info(f"✓ Created IP address {created_ip} in NetBox with DNS name {full_hostname}")
+                    available_ip_created = True
+                except Exception as e:
+                    error_str = str(e)
+                    # If 403 with tenant, might be a format issue - try dict format
+                    if ('403' in error_str or 'permission' in error_str.lower() or 'forbidden' in error_str.lower()) and tenant_id:
+                        logger.warning(f"→ available_ips endpoint returned 403 with tenant ID format, trying tenant dict format")
+                        try:
+                            # Try with tenant as dict (some pynetbox versions need this)
+                            available_ip_data = {
+                                'dns_name': full_hostname,
+                                'tenant': {'id': tenant_id}
+                            }
+                            result = prefix_obj.available_ips.create(available_ip_data)
+                            created_ip = result.address if hasattr(result, 'address') else str(result)
+                            logger.info(f"✓ Created IP address {created_ip} in NetBox with DNS name {full_hostname}")
+                            available_ip_created = True
+                        except Exception as e2:
+                            # Both formats failed - fall through to error handling
+                            logger.warning(f"→ Both tenant formats failed for available_ips endpoint")
+                            e = e2
+                    # Handle the error if we didn't succeed
+                    if not available_ip_created:
+                        if '403' in error_str or 'permission' in error_str.lower() or 'forbidden' in error_str.lower():
+                            logger.warning(f"→ available_ips endpoint returned 403 Forbidden")
+                            logger.warning(f"→ Tenant ID {tenant_id} was included - falling back to direct IP creation method")
+                            # Continue to try Method 2 below
+                            pass
+                        elif 'duplicate' in error_str.lower() or '400' in error_str or 'already exists' in error_str.lower():
+                            logger.error(f"IP address already exists in NetBox (duplicate detected via available_ips)")
+                            logger.error(f"This would cause IP conflicts - stopping VM creation")
+                            return False  # Stop - duplicate IP detected
+                        else:
+                            logger.warning(f"→ available_ips endpoint failed: {e}")
+                            logger.warning(f"→ Falling back to direct IP creation method")
+                            pass
+            
+            # Try without tenant if we haven't succeeded yet and tenant is None
+            if not available_ip_created and not tenant_id:
+                try:
+                    available_ip_data = {
+                        'dns_name': full_hostname
+                    }
+                    logger.warning(f"→ Attempting to create IP via available_ips endpoint WITHOUT tenant")
+                    result = prefix_obj.available_ips.create(available_ip_data)
+                    created_ip = result.address if hasattr(result, 'address') else str(result)
+                    logger.info(f"✓ Created IP address {created_ip} in NetBox with DNS name {full_hostname}")
+                    available_ip_created = True
+                except Exception as e:
+                    error_str = str(e)
+                    if '403' in error_str or 'permission' in error_str.lower() or 'forbidden' in error_str.lower():
+                        logger.warning(f"→ available_ips endpoint returned 403 Forbidden")
+                        logger.error(f"→ No tenant ID was provided! This may be the cause of the permission error.")
+                        logger.error(f"→ Ensure 'tenant' is configured in your [netbox] section in the config file")
+                        # Continue to try Method 2 below
+                        pass
+                    elif 'duplicate' in error_str.lower() or '400' in error_str or 'already exists' in error_str.lower():
+                        logger.error(f"IP address already exists in NetBox (duplicate detected via available_ips)")
+                        logger.error(f"This would cause IP conflicts - stopping VM creation")
+                        return False  # Stop - duplicate IP detected
+                    else:
+                        logger.warning(f"→ available_ips endpoint failed: {e}")
+                        logger.warning(f"→ Falling back to direct IP creation method")
+                        pass
+            
+            # If we successfully created via available_ips, return
+            if available_ip_created:
                 return True
-            except Exception as e:
-                error_str = str(e)
-                if '403' in error_str or 'permission' in error_str.lower() or 'forbidden' in error_str.lower():
-                    # Permission error - try direct creation method below
-                    pass
-                elif 'duplicate' in error_str.lower() or '400' in error_str or 'already exists' in error_str.lower():
-                    # IP already exists - this is a problem, need to stop
-                    logger.error(f"IP address already exists in NetBox (duplicate detected via available_ips)")
-                    logger.error(f"This would cause IP conflicts - stopping VM creation")
-                    return False  # Stop - duplicate IP detected
-                else:
-                    # Other error - try direct creation method below
-                    pass
         
         # Method 2: Direct IP address creation
+        logger.info(f"→ Using direct IP address creation method")
         ip_data = {
             'address': ip_with_cidr,
             'dns_name': full_hostname,
             'status': 'active'
         }
         
-        # Add tenant if provided
+        # Add tenant if provided (pynetbox accepts tenant as ID)
         if tenant_id:
             ip_data['tenant'] = tenant_id
+            logger.info(f"→ Including tenant ID {tenant_id} in IP address creation")
+        else:
+            logger.warning(f"→ NOT including tenant in IP address creation - this may cause permission errors")
         
         # Associate with prefix if we have it (required for NetBox validation in some cases)
         if prefix_obj:
@@ -440,6 +505,11 @@ def create_ip_address_in_netbox(nb, ip_address: str, hostname: str, domain: Opti
             # Check if error is about permissions (403) - this is a critical error, must stop
             if '403' in error_str or 'permission' in error_str.lower() or 'forbidden' in error_str.lower():
                 logger.error(f"Insufficient permissions to create IP address in NetBox (403 Forbidden)")
+                if not tenant_id:
+                    logger.error(f"ERROR: No tenant ID was provided when creating the IP address!")
+                    logger.error(f"This is likely the cause of the permission error.")
+                    logger.error(f"Please ensure 'tenant' is configured in your [netbox] section in the config file")
+                    logger.error(f"Example: tenant = your-tenant-slug")
                 logger.error(f"The NetBox API token does not have 'ipam | ip address | add' permission")
                 logger.error(f"Please verify token permissions in NetBox: Admin → API Tokens → Edit Token")
                 logger.error(f"Required permission: ipam | ip address | add (or full ipam permissions)")
