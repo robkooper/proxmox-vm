@@ -25,29 +25,34 @@ Examples:
   proxmox vm start webserver
   proxmox vm stop webserver
   proxmox vm start 100  # Using VM ID
+  proxmox vm list  # List all VMs
   
   # DNS operations
   proxmox dns create myserver 192.168.1.100
   proxmox dns delete myserver  # By hostname
   proxmox dns delete 192.168.1.100  # By IP address
+  proxmox dns list  # List all DNS entries in NetBox for subnet
   
   # Firewall operations
   proxmox firewall create webserver 8080
   proxmox firewall create webserver  # ICMP (no port)
   proxmox firewall delete webserver 8080
   proxmox firewall delete 100 80  # Using VM ID
+  proxmox firewall list webserver  # List all firewall rules for VM
   
   # Image operations
   proxmox image create ubuntu24
   proxmox image create all
   proxmox image delete ubuntu22
   proxmox image update ubuntu24
+  proxmox image list  # List all images
   
   # Tag operations
   proxmox tag create webserver production
   proxmox tag create 100 web  # Using VM ID
   proxmox tag delete webserver production
   proxmox tag delete 100 web  # Using VM ID
+  proxmox tag list webserver  # List all tags for VM
         '''
     )
     
@@ -82,6 +87,12 @@ Examples:
                          help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
     vm.setup_stop_parser(vm_stop)
     
+    # VM list
+    vm_list = vm_subparsers.add_parser('list', help='List all VMs')
+    vm_list.add_argument('--config', default=None,
+                         help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
+    vm.setup_list_parser(vm_list)
+    
     # DNS command
     dns_parser = subparsers.add_parser('dns', help='DNS management commands')
     dns_subparsers = dns_parser.add_subparsers(dest='action', help='DNS action', required=True)
@@ -98,6 +109,12 @@ Examples:
                             help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
     dns.setup_delete_parser(dns_delete)
     
+    # DNS list
+    dns_list = dns_subparsers.add_parser('list', help='List all DNS entries in NetBox for subnet')
+    dns_list.add_argument('--config', default=None,
+                          help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
+    dns.setup_list_parser(dns_list)
+    
     # Firewall command
     firewall_parser = subparsers.add_parser('firewall', help='Firewall management commands')
     firewall_subparsers = firewall_parser.add_subparsers(dest='action', help='Firewall action', required=True)
@@ -113,6 +130,12 @@ Examples:
     firewall_delete.add_argument('--config', default=None,
                                  help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
     firewall.setup_delete_parser(firewall_delete)
+    
+    # Firewall list
+    firewall_list = firewall_subparsers.add_parser('list', help='List all firewall rules for a VM')
+    firewall_list.add_argument('--config', default=None,
+                               help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
+    firewall.setup_list_parser(firewall_list)
     
     # Image command
     image_parser = subparsers.add_parser('image', help='Image management commands')
@@ -136,6 +159,12 @@ Examples:
                               help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
     image.setup_update_parser(image_update)
     
+    # Image list
+    image_list = image_subparsers.add_parser('list', help='List all images')
+    image_list.add_argument('--config', default=None,
+                            help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
+    image.setup_list_parser(image_list)
+    
     # Tag command
     tag_parser = subparsers.add_parser('tag', help='Tag management commands')
     tag_subparsers = tag_parser.add_subparsers(dest='action', help='Tag action', required=True)
@@ -152,6 +181,12 @@ Examples:
                             help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
     tag.setup_delete_parser(tag_delete)
     
+    # Tag list
+    tag_list = tag_subparsers.add_parser('list', help='List all tags for a VM')
+    tag_list.add_argument('--config', default=None,
+                          help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
+    tag.setup_list_parser(tag_list)
+    
     args = parser.parse_args()
     
     # Execute the appropriate command
@@ -165,16 +200,22 @@ Examples:
                 vm.handle_start(args)
             elif args.action == 'stop':
                 vm.handle_stop(args)
+            elif args.action == 'list':
+                vm.handle_list(args)
         elif args.command == 'dns':
             if args.action == 'create':
                 dns.handle_create(args)
             elif args.action == 'delete':
                 dns.handle_delete(args)
+            elif args.action == 'list':
+                dns.handle_list(args)
         elif args.command == 'firewall':
             if args.action == 'create':
                 firewall.handle_create(args)
             elif args.action == 'delete':
                 firewall.handle_delete(args)
+            elif args.action == 'list':
+                firewall.handle_list(args)
         elif args.command == 'image':
             if args.action == 'create':
                 image.handle_create(args)
@@ -182,11 +223,15 @@ Examples:
                 image.handle_delete(args)
             elif args.action == 'update':
                 image.handle_update(args)
+            elif args.action == 'list':
+                image.handle_list(args)
         elif args.command == 'tag':
             if args.action == 'create':
                 tag.handle_create(args)
             elif args.action == 'delete':
                 tag.handle_delete(args)
+            elif args.action == 'list':
+                tag.handle_list(args)
     except KeyboardInterrupt:
         print("\n\nOperation cancelled by user")
         sys.exit(1)

@@ -377,6 +377,12 @@ def setup_update_parser(parser):
                         help='Specific node to use (default: auto-select first online node)')
 
 
+def setup_list_parser(parser):
+    """Setup argument parser for images list command"""
+    # No arguments needed for listing all images
+    pass
+
+
 def handle_create(args):
     """Handle images create command"""
     # Load configuration
@@ -576,3 +582,27 @@ def handle_update(args):
     print(f"\n{'=' * 80}")
     logger.info(f"✓ Operations completed: {updated_count} updated, {failed_count} failed")
     print('=' * 80)
+
+
+def handle_list(args):
+    """Handle images list command"""
+    # Load configuration
+    try:
+        config = ProxmoxConfig(args.config)
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {e}")
+        sys.exit(1)
+    
+    # Connect to Proxmox
+    try:
+        proxmox = connect_proxmox(config)
+    except ProxmoxConnectionError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    logger.info("✓ Connected to Proxmox")
+    
+    # List images
+    list_images(proxmox, config)

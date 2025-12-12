@@ -30,6 +30,12 @@ def setup_delete_parser(parser):
                         help='Tag to remove from the VM')
 
 
+def setup_list_parser(parser):
+    """Setup argument parser for tag list command"""
+    parser.add_argument('vm',
+                        help='VM name or ID to list tags for')
+
+
 def get_vm_tags(proxmox, node: str, vmid: int) -> list:
     """
     Get current tags from a VM
@@ -46,8 +52,8 @@ def get_vm_tags(proxmox, node: str, vmid: int) -> list:
         vm_config = proxmox.nodes(node).qemu(vmid).config.get()
         tags_str = vm_config.get('tags', '')
         if tags_str:
-            # Tags are stored as comma-separated string
-            return [tag.strip() for tag in tags_str.split(',') if tag.strip()]
+            # Proxmox stores tags as semicolon-separated string
+            return [tag.strip() for tag in tags_str.split(';') if tag.strip()]
         return []
     except Exception as e:
         logger.error(f"Failed to get tags from VM {vmid}: {e}")
@@ -226,3 +232,51 @@ def handle_delete(args):
     else:
         logger.error(f"Failed to remove tag '{args.tag}' from VM {vmid}")
         sys.exit(1)
+
+
+def handle_list(args):
+    """Handle tag list command"""
+    # Load configuration
+    try:
+        config = ProxmoxConfig(args.config)
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {e}")
+        sys.exit(1)
+    
+    # Connect to Proxmox
+    try:
+        proxmox = connect_proxmox(config)
+    except ProxmoxConnectionError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    logger.info("✓ Connected to Proxmox")
+    
+    # Find VM by name or ID
+    vm = find_vm_identifier(proxmox, args.vm)
+    if not vm:
+        logger.error(f"VM '{args.vm}' not found")
+        sys.exit(1)
+    
+    vmid = vm['vmid']
+    node = vm['node']
+    name = vm['name']
+    
+    # Get current tags
+    tags = get_vm_tags(proxmox, node, vmid)
+    
+    # Print header
+    print("\n" + "=" * 80)
+    print(f"Tags for VM {vmid} ({name}) on node {node}:")
+    print("=" * 80)
+    
+    if tags:
+        for tag in sorted(tags):
+            print(f"  - {tag}")
+    else:
+        print("  (no tags)")
+    
+    print("=" * 80)
+    print(f"\nTotal: {len(tags)} tag(s)")

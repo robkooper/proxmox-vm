@@ -34,6 +34,12 @@ def setup_delete_parser(parser):
                         help='Hostname or IP address to delete')
 
 
+def setup_list_parser(parser):
+    """Setup argument parser for DNS list command"""
+    # No arguments needed - uses subnet from config
+    pass
+
+
 def handle_create(args):
     """Handle DNS create command"""
     hostname = args.hostname.strip()
@@ -193,3 +199,97 @@ def handle_delete(args):
         sys.exit(0)
     else:
         sys.exit(1)
+
+
+def handle_list(args):
+    """Handle DNS list command"""
+    # Load configuration
+    try:
+        config = ProxmoxConfig(args.config)
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Error loading configuration: {e}")
+        sys.exit(1)
+    
+    # Check NetBox configuration
+    if not config.has_netbox_config():
+        logger.error("NetBox configuration not found in configuration file")
+        logger.error(f"Set [netbox] section in {config.config_file}")
+        sys.exit(1)
+    
+    netbox_url = config.get_netbox_url()
+    netbox_token = config.get_netbox_token()
+    netbox_subnet = config.get_netbox_subnet()
+    
+    if not netbox_url or not netbox_token:
+        logger.error("NetBox URL and token must be configured")
+        logger.error(f"Set [netbox] url and token in {config.config_file}")
+        sys.exit(1)
+    
+    if not netbox_subnet:
+        logger.error("NetBox subnet must be configured")
+        logger.error(f"Set [netbox] subnet in {config.config_file}")
+        sys.exit(1)
+    
+    # Connect to NetBox
+    try:
+        nb = connect_netbox(netbox_url, netbox_token)
+    except NetboxDependencyError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except NetboxConnectionError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    
+    logger.info("✓ Connected to NetBox")
+    
+    # Find prefix for subnet
+    from proxmox.netbox_utils import find_prefix_for_subnet
+    prefix = find_prefix_for_subnet(nb, netbox_subnet)
+    
+    if not prefix:
+        logger.error(f"Subnet {netbox_subnet} not found in NetBox")
+        sys.exit(1)
+    
+    # Get all IP addresses in this prefix
+    try:
+        ip_addresses = nb.ipam.ip_addresses.filter(prefix=str(prefix.prefix))
+        ip_list = list(ip_addresses)
+    except Exception as e:
+        logger.error(f"Error querying NetBox for IP addresses: {e}")
+        sys.exit(1)
+    
+    # Filter to only IPs with DNS names
+    dns_entries = []
+    for ip_obj in ip_list:
+        dns_name = getattr(ip_obj, 'dns_name', None) or ''
+        if dns_name:
+            ip_str = str(ip_obj.address).split('/')[0]
+            dns_entries.append({
+                'ip': ip_str,
+                'dns_name': dns_name,
+                'address': str(ip_obj.address)
+            })
+    
+    if not dns_entries:
+        print(f"\nNo DNS entries found in subnet {netbox_subnet}")
+        return
+    
+    # Print header
+    print("\n" + "=" * 80)
+    print(f"DNS Entries in NetBox for subnet {netbox_subnet}:")
+    print("=" * 80)
+    print(f"{'IP Address':<20} {'DNS Name':<50}")
+    print("-" * 80)
+    
+    # Sort by IP address
+    dns_entries_sorted = sorted(dns_entries, key=lambda x: ipaddress.ip_address(x['ip']))
+    
+    # Print each entry
+    for entry in dns_entries_sorted:
+        print(f"{entry['ip']:<20} {entry['dns_name']:<50}")
+    
+    print("=" * 80)
+    print(f"\nTotal: {len(dns_entries)} DNS entry/entries")

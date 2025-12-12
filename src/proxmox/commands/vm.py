@@ -94,6 +94,14 @@ def setup_stop_parser(parser):
                         help='VM name or ID to stop')
 
 
+def setup_list_parser(parser):
+    """Setup argument parser for VM list command"""
+    parser.add_argument('-s', '--sort', choices=['name', 'node', 'id'], default='id',
+                        help='Sort by name, node, or id (default: id)')
+    parser.add_argument('-f', '--filter', action='append',
+                        help='Filter by node, tag, or status. Format: node:value, tag:value, or status:value. Can be specified multiple times (AND logic)')
+
+
 def handle_create(args):
     """Handle VM create command"""
     # Load configuration
@@ -554,3 +562,129 @@ def handle_stop(args):
     else:
         logger.error("VM stop failed")
         sys.exit(1)
+
+
+def list_all_vms(proxmox):
+    """
+    List all VMs from all nodes with tags
+    
+    Args:
+        proxmox: ProxmoxAPI instance
+    
+    Returns:
+        List of VM info dicts with 'vmid', 'name', 'node', 'status', 'tags'
+    """
+    all_vms = []
+    try:
+        nodes = proxmox.nodes.get()
+        for node in nodes:
+            node_name = node['node']
+            try:
+                vms = proxmox.nodes(node_name).qemu.get()
+                for vm in vms:
+                    vmid = vm.get('vmid')
+                    # Get tags for this VM
+                    tags = []
+                    try:
+                        vm_config = proxmox.nodes(node_name).qemu(vmid).config.get()
+                        tags_str = vm_config.get('tags', '')
+                        if tags_str:
+                            # Proxmox stores tags as semicolon-separated string
+                            tags = [tag.strip() for tag in tags_str.split(';') if tag.strip()]
+                    except Exception:
+                        # If we can't get tags, continue with empty list
+                        pass
+                    
+                    all_vms.append({
+                        'vmid': vmid,
+                        'name': vm.get('name', ''),
+                        'node': node_name,
+                        'status': vm.get('status', 'unknown'),
+                        'tags': tags
+                    })
+            except Exception as e:
+                logger.error(f"Error querying node {node_name}: {e}")
+                continue
+    except Exception as e:
+        logger.error(f"Error querying nodes: {e}")
+        raise
+    
+    return all_vms
+
+
+def handle_list(args):
+    """Handle VM list command"""
+    # Load configuration
+    try:
+        config = ProxmoxConfig(args.config)
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {e}")
+        sys.exit(1)
+    
+    # Connect to Proxmox
+    try:
+        proxmox = connect_proxmox(config)
+    except ProxmoxConnectionError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    logger.info("✓ Connected to Proxmox")
+    
+    # List all VMs
+    vms = list_all_vms(proxmox)
+    
+    # Apply filters if specified (all filters must match - AND logic)
+    if args.filter:
+        for filter_str in args.filter:
+            filter_parts = filter_str.split(':', 1)
+            if len(filter_parts) != 2:
+                logger.error(f"Filter format must be 'type:value' (e.g., 'node:pve1', 'tag:production', 'status:running'). Got: {filter_str}")
+                sys.exit(1)
+            
+            filter_type = filter_parts[0].lower()
+            filter_value = filter_parts[1]
+            
+            if filter_type == 'node':
+                vms = [vm for vm in vms if vm['node'].lower() == filter_value.lower()]
+            elif filter_type == 'tag':
+                # Filter VMs that have the specified tag (case-insensitive match)
+                filter_tag_lower = filter_value.lower()
+                vms = [vm for vm in vms if any(tag.lower() == filter_tag_lower for tag in vm['tags'])]
+            elif filter_type == 'status':
+                vms = [vm for vm in vms if vm['status'].lower() == filter_value.lower()]
+            else:
+                logger.error(f"Invalid filter type: {filter_type}. Must be 'node', 'tag', or 'status'")
+                sys.exit(1)
+    
+    if not vms:
+        print("\nNo VMs found")
+        return
+    
+    # Print header
+    print("\n" + "=" * 100)
+    print("VMs:")
+    print("=" * 100)
+    print(f"{'VM ID':<8} {'Name':<30} {'Node':<20} {'Status':<15} {'Tags':<30}")
+    print("-" * 100)
+    
+    # Sort based on user's choice
+    sort_key = args.sort
+    if sort_key == 'name':
+        vms_sorted = sorted(vms, key=lambda x: (x['name'].lower(), x['vmid']))
+    elif sort_key == 'node':
+        vms_sorted = sorted(vms, key=lambda x: (x['node'].lower(), x['vmid']))
+    else:  # 'id' (default)
+        vms_sorted = sorted(vms, key=lambda x: x['vmid'])
+    
+    # Print each VM
+    for vm in vms_sorted:
+        tags_str = ', '.join(vm['tags']) if vm['tags'] else '(none)'
+        # Truncate tags if too long
+        if len(tags_str) > 28:
+            tags_str = tags_str[:25] + '...'
+        print(f"{vm['vmid']:<8} {vm['name']:<30} {vm['node']:<20} {vm['status']:<15} {tags_str:<30}")
+    
+    print("=" * 100)
+    print(f"\nTotal: {len(vms)} VM(s)")

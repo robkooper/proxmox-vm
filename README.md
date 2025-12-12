@@ -221,6 +221,39 @@ proxmox vm stop webserver01
 proxmox vm stop 100  # Using VM ID
 ```
 
+**List VMs:**
+```bash
+# List all VMs (sorted by ID by default)
+proxmox vm list
+
+# Sort by name
+proxmox vm list -s name
+
+# Sort by node
+proxmox vm list --sort node
+
+# Sort by ID (default)
+proxmox vm list -s id
+
+# Filter by node
+proxmox vm list -f node:pve1
+
+# Filter by tag
+proxmox vm list -f tag:production
+
+# Filter by status
+proxmox vm list -f status:running
+
+# Combine multiple filters (AND logic - all must match)
+proxmox vm list -f node:pve1 -f tag:production
+
+# Combine filter and sort
+proxmox vm list -f tag:production -s name
+
+# Multiple filters with sort
+proxmox vm list -f node:pve1 -f tag:ubuntu24 -s name
+```
+
 ### Image Management
 
 **Create/Download images:**
@@ -250,6 +283,12 @@ proxmox image delete ubuntu22
 proxmox image delete all
 ```
 
+**List images:**
+```bash
+# List all images in storage
+proxmox image list
+```
+
 ### DNS Management
 
 **Create DNS records:**
@@ -264,6 +303,12 @@ proxmox dns delete myserver
 
 # By IP address
 proxmox dns delete 192.168.1.100
+```
+
+**List DNS records:**
+```bash
+# List all DNS entries in NetBox for subnet
+proxmox dns list
 ```
 
 ### Firewall Management
@@ -292,6 +337,13 @@ proxmox firewall delete dbserver 3306 --ip 192.168.1.100
 proxmox firewall delete webserver
 ```
 
+**List firewall rules:**
+```bash
+# List all firewall rules for a VM
+proxmox firewall list webserver
+proxmox firewall list 100  # Using VM ID
+```
+
 ### Tag Management
 
 **Add tags to VMs:**
@@ -310,6 +362,13 @@ proxmox tag delete webserver production
 
 # Remove tag from VM by ID
 proxmox tag delete 100 web
+```
+
+**List tags:**
+```bash
+# List all tags for a VM
+proxmox tag list webserver
+proxmox tag list 100  # Using VM ID
 ```
 
 ## Command Reference
@@ -340,6 +399,13 @@ proxmox vm start <name-or-id>
 
 # Stop VM
 proxmox vm stop <name-or-id>
+
+# List VMs
+proxmox vm list [-s, --sort {name,node,id}] [-f, --filter FILTER]...
+  -s, --sort SORT        Sort by name, node, or id (default: id)
+  -f, --filter FILTER    Filter by node, tag, or status. Format: type:value
+                         Examples: node:pve1, tag:production, status:running
+                         Can be specified multiple times (AND logic - all filters must match)
 ```
 
 ### Image Commands
@@ -354,6 +420,9 @@ proxmox image update <image-name-or-all>
 # Delete image
 proxmox image delete <image-name-or-all>
 
+# List images
+proxmox image list
+
 # Available images: ubuntu22, ubuntu24, rocky8, rocky9, rocky10, or "all"
 ```
 
@@ -365,6 +434,9 @@ proxmox dns create <hostname> <ip-address>
 
 # Delete DNS record
 proxmox dns delete <hostname-or-ip>
+
+# List DNS records
+proxmox dns list
 ```
 
 ### Firewall Commands
@@ -375,6 +447,9 @@ proxmox firewall create <vm-name-or-id> [port] [--ip source-ip]
 
 # Delete firewall rule
 proxmox firewall delete <vm-name-or-id> [port] [--ip source-ip]
+
+# List firewall rules
+proxmox firewall list <vm-name-or-id>
 ```
 
 ### Tag Commands
@@ -385,6 +460,9 @@ proxmox tag create <vm-name-or-id> <tag>
 
 # Remove tag from VM
 proxmox tag delete <vm-name-or-id> <tag>
+
+# List tags
+proxmox tag list <vm-name-or-id>
 ```
 
 ### Global Options
