@@ -39,8 +39,8 @@ def download_image_to_proxmox(
     Returns:
         Filename in storage
     """
-    logger.info(f"→ f"Downloading image directly to Proxmox storage {storage}...")
-    logger.info(f"→ f"URL: {image_url}")
+    logger.info(f"→ Downloading image directly to Proxmox storage {storage}...")
+    logger.info(f"→ URL: {image_url}")
     
     try:
         # Verify storage supports ISO uploads first
@@ -63,10 +63,10 @@ def download_image_to_proxmox(
                 # Check if storage supports ISO uploads
                 all_types = ','.join(content_types) if isinstance(content_types, list) else content_types
                 if 'iso' not in all_types:
-                    logger.info(f"→ f"Storage '{storage}' content types: {content_types}")
-                    logger.info(f"→ "Note: 'iso' content type should be enabled for disk images")
+                    logger.info(f"→ Storage '{storage}' content types: {content_types}")
+                    logger.info("→ Note: 'iso' content type should be enabled for disk images")
         except Exception as e:
-            logger.info(f"→ f"Could not verify storage configuration: {e}")
+            logger.info(f"→ Could not verify storage configuration: {e}")
             # Continue anyway - download might still work
         
         # Check if file already exists and delete it
@@ -82,23 +82,23 @@ def download_image_to_proxmox(
                     break
             
             if matching_volid:
-                logger.info(f"→ f"File already exists in storage: {matching_volid}")
-                logger.info(f"→ "Deleting existing file...")
+                logger.info(f"→ File already exists in storage: {matching_volid}")
+                logger.info("→ Deleting existing file...")
                 try:
                     # Delete the existing file
                     proxmox.nodes(node).storage(storage).content(matching_volid).delete()
-                    logger.info(f"✓ "Existing file deleted")
+                    logger.info("✓ Existing file deleted")
                     # Wait a moment for deletion to complete
                     time.sleep(2)
                 except Exception as del_err:
                     logger.error(f"Failed to delete existing file: {del_err}")
-                    logger.info(f"→ "You may need to delete it manually via Proxmox UI or:")
-                    logger.info(f"→ f"  Delete via API or run: rm /mnt/pve/{storage}/template/iso/{filename}")
-                    logger.info(f"→ "Trying to download anyway (will likely fail if file still exists)...")
+                    logger.info("→ You may need to delete it manually via Proxmox UI or:")
+                    logger.info(f"→   Delete via API or run: rm /mnt/pve/{storage}/template/iso/{filename}")
+                    logger.info("→ Trying to download anyway (will likely fail if file still exists)...")
         except Exception as e:
             # If we can't check/list storage, continue anyway
-            logger.info(f"→ f"Could not check for existing files: {e}")
-            logger.info(f"→ "Proceeding with download (may fail if file exists)...")
+            logger.info(f"→ Could not check for existing files: {e}")
+            logger.info("→ Proceeding with download (may fail if file exists)...")
         
         # Use proxmoxer's download-url endpoint
         # Download to "import" content type so we can use import-from parameter
@@ -130,8 +130,8 @@ def download_image_to_proxmox(
         else:
             upid_str = str(upid)
         
-        logger.info(f"✓ f"Download task started: {upid_str}")
-        logger.info(f"→ "Waiting for download to complete...")
+        logger.info(f"✓ Download task started: {upid_str}")
+        logger.info("→ Waiting for download to complete...")
         
         # Wait for task to complete (with timeout)
         max_wait = 3600  # 1 hour timeout
@@ -146,13 +146,13 @@ def download_image_to_proxmox(
                 # Only print status if it changed
                 if current_status != last_status:
                     if current_status == 'running':
-                        logger.info(f"→ f"Download in progress... (status: {current_status})")
+                        logger.info(f"→ Download in progress... (status: {current_status})")
                     last_status = current_status
                 
                 if current_status == 'stopped':
                     exitstatus = task_status.get('exitstatus', '')
                     if exitstatus == 'OK':
-                        logger.info(f"✓ f"Download completed: {filename}")
+                        logger.info(f"✓ Download completed: {filename}")
                         return filename
                     else:
                         # Get detailed error information
@@ -290,7 +290,7 @@ Examples:
     except ProxmoxConnectionError as e:
         logger.error(str(e))
         sys.exit(1)
-    logger.info(f"✓ "Connected to Proxmox")
+    logger.info("✓ Connected to Proxmox")
     
     # List images if requested
     if args.list:
@@ -329,13 +329,13 @@ Examples:
             downloaded_filename = download_image_to_proxmox(
                 proxmox, args.node, storage, image_url, filename
             )
-            logger.info(f"✓ f"Image '{downloaded_filename}' ready in storage '{storage}'")
+            logger.info(f"✓ Image '{downloaded_filename}' ready in storage '{storage}'")
         except Exception as e:
             logger.error(f"Failed to download {os_name}: {e}")
             continue
     
     print(f"\n{'=' * 80}")
-    logger.info(f"✓ "All operations completed")
+    logger.info("✓ All operations completed")
     print('=' * 80)
 
 

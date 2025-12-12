@@ -114,8 +114,8 @@ def add_rule(proxmox, hostname: str, port: Optional[int], source_ip: Optional[st
     else:
         comment = f"Port {port} from {source_ip}" if source_ip else f"Port {port}"
     
-    logger.info(f"→ f"Adding firewall rule to VM {vmid} ({hostname}) on node {node}")
-    logger.info(f"→ f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} {'from ' + source_ip if source_ip else '(all sources)'}")
+    logger.info(f"→ Adding firewall rule to VM {vmid} ({hostname}) on node {node}")
+    logger.info(f"→   Rule: {protocol.upper()} port {port if port else 'ICMP'} {'from ' + source_ip if source_ip else '(all sources)'}")
     
     if add_firewall_rule(proxmox, node, vmid, port, protocol, source_ip, comment):
         logger.info("✓ Firewall rule added successfully")
@@ -145,11 +145,11 @@ def delete_rule(proxmox, hostname: str, port: Optional[int], source_ip: Optional
     
     protocol = determine_protocol(port)
     
-    logger.info(f"→ f"Deleting firewall rule from VM {vmid} ({hostname}) on node {node}")
+    logger.info(f"→ Deleting firewall rule from VM {vmid} ({hostname}) on node {node}")
     if source_ip:
-        logger.info(f"→ f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} from {source_ip}")
+        logger.info(f"→   Rule: {protocol.upper()} port {port if port else 'ICMP'} from {source_ip}")
     else:
-        logger.info(f"→ f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} (all sources)")
+        logger.info(f"→   Rule: {protocol.upper()} port {port if port else 'ICMP'} (all sources)")
     
     if delete_firewall_rule(proxmox, node, vmid, port, protocol, source_ip):
         logger.info("✓ Firewall rule deleted successfully")
@@ -175,13 +175,13 @@ def list_rules(proxmox, hostname: str):
     vmid = vm['vmid']
     node = vm['node']
     
-    logger.info(f"→ f"Firewall rules for VM {vmid} ({hostname}) on node {node}:")
+    logger.info(f"→ Firewall rules for VM {vmid} ({hostname}) on node {node}:")
     print()
     
     rules = get_firewall_rules(proxmox, node, vmid)
     
     if not rules:
-        logger.info(f"→ "No firewall rules found")
+        logger.info("→ No firewall rules found")
         return
     
     # Print header
@@ -244,7 +244,7 @@ Examples:
         config = ProxmoxConfig(args.config)
     except Exception as e:
         logger.error(f"Failed to load configuration: {e}")
-        logger.info(f"→ "Copy proxmox.ini.example to proxmox.ini and configure it")
+        logger.info("→ Copy proxmox.ini.example to proxmox.ini and configure it")
         sys.exit(1)
     
     # Connect to Proxmox

@@ -1027,7 +1027,7 @@ def create_vm(
         tags: Optional list of additional tags to apply to the VM (OS tag is automatically added)
     
     Returns:
-        Tuple of (VM ID, IP address) where IP address can be None if not configured
+        Tuple of (VM ID, IP address, node) where IP address can be None if not configured
     """
     # Validate OS
     if not validate_os_name(os_name):
@@ -1170,7 +1170,7 @@ def create_vm(
     logger.info(f"→ Setting up default firewall rules...")
     setup_default_firewall_rules(proxmox, node, vmid)
     
-    return (vmid, ip_address)
+    return (vmid, ip_address, node)
 
 
 def main():
@@ -1336,7 +1336,7 @@ Examples:
     
     # Create VM
     try:
-        vmid, ip_address = create_vm(
+        vmid, ip_address, node = create_vm(
             proxmox=proxmox,
             config=config,
             name=args.name,
@@ -1364,6 +1364,24 @@ Examples:
             ip_display = ip_address.split('/')[0]
             print(f"  IP:      {ip_display}")
         print(f"  Status:  {'Running' if not args.no_start else 'Stopped'}")
+        print(f"  Node:    {node}")
+        print("=" * 80)
+        print("\n" + "=" * 80)
+        print("VM Configuration:")
+        print("=" * 80)
+        print(f"  Name:      {args.name}")
+        print(f"  OS:        {args.os_name}")
+        print(f"  Cores:     {cores}")
+        print(f"  Memory:    {memory} MB")
+        print(f"  Disk:      {disk_size} GB")
+        print(f"  User:      {args.username}")
+        print(f"  SSH Key:   {'Yes' if ssh_keys else 'No'}")
+        print(f"  Password:  {'Yes (encrypted)' if encrypted_password else 'No'}")
+        print(f"  Puppet:    {'Yes' if args.puppet else 'No'}")
+        if args.puppet:
+            print(f"  Puppet Server: {puppet_server}")
+        print(f"  Node:      {args.node if args.node else 'Auto-select'}")
+        print(f"  Tags:      {args.os_name}" + (f", {', '.join(args.tags)}" if args.tags else ""))
         print("=" * 80)
         print("\nNote: Wait a few minutes for cloud-init to complete initial setup.")
         print("      You can monitor progress in the Proxmox web interface.")

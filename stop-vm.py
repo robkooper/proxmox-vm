@@ -35,16 +35,16 @@ def stop_vm(proxmox, vm_info: dict) -> bool:
     node = vm_info['node']
     status = vm_info['status']
     
-    logger.info(f"→ f"VM {vmid} ({name}) on node {node} (status: {status})")
+    logger.info(f"→ VM {vmid} ({name}) on node {node} (status: {status})")
     
     # Check if VM is already stopped
     if status == 'stopped':
-        logger.info(f"→ f"VM {vmid} is already stopped")
+        logger.info(f"→ VM {vmid} is already stopped")
         return True
     
     try:
         # Stop the VM
-        logger.info(f"→ f"Stopping VM {vmid}...")
+        logger.info(f"→ Stopping VM {vmid}...")
         proxmox.nodes(node).qemu(vmid).status.stop.post()
         
         # Wait for VM to stop
@@ -53,7 +53,7 @@ def stop_vm(proxmox, vm_info: dict) -> bool:
         while elapsed < max_wait:
             vm_status = proxmox.nodes(node).qemu(vmid).status.current.get()
             if vm_status.get('status') == 'stopped':
-                logger.info(f"✓ f"VM {vmid} ({name}) stopped successfully")
+                logger.info(f"✓ VM {vmid} ({name}) stopped successfully")
                 return True
             time.sleep(1)
             elapsed += 1
@@ -113,34 +113,34 @@ Examples:
     except ProxmoxConnectionError as e:
         logger.error(str(e))
         sys.exit(1)
-    logger.info(f"✓ "Connected to Proxmox")
+    logger.info("✓ Connected to Proxmox")
     
     # Find VM
     vm = None
     
     if args.vm_name:
-        logger.info(f"→ f"Searching for VM with name '{args.vm_name}'...")
+        logger.info(f"→ Searching for VM with name '{args.vm_name}'...")
         vm = find_vm_by_name(proxmox, args.vm_name)
         
         if not vm:
             logger.error(f"VM with name '{args.vm_name}' not found")
             sys.exit(1)
         
-        logger.info(f"✓ f"Found VM {vm['vmid']} ({vm['name']}) on node {vm['node']}")
+        logger.info(f"✓ Found VM {vm['vmid']} ({vm['name']}) on node {vm['node']}")
     
     elif args.vm_id is not None:
-        logger.info(f"→ f"Searching for VM with ID {args.vm_id}...")
+        logger.info(f"→ Searching for VM with ID {args.vm_id}...")
         vm = find_vm_by_id(proxmox, args.vm_id)
         
         if not vm:
             logger.error(f"VM with ID {args.vm_id} not found")
             sys.exit(1)
         
-        logger.info(f"✓ f"Found VM {args.vm_id} ({vm['name']}) on node {vm['node']}")
+        logger.info(f"✓ Found VM {args.vm_id} ({vm['name']}) on node {vm['node']}")
     
     # Stop VM
     if stop_vm(proxmox, vm):
-        logger.info(f"✓ "VM stop completed")
+        logger.info("✓ VM stop completed")
     else:
         logger.error("VM stop failed")
         sys.exit(1)

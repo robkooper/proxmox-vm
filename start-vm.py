@@ -35,16 +35,16 @@ def start_vm(proxmox, vm_info: dict) -> bool:
     node = vm_info['node']
     status = vm_info['status']
     
-    logger.info(f"→ f"VM {vmid} ({name}) on node {node} (status: {status})")
+    logger.info(f"→ VM {vmid} ({name}) on node {node} (status: {status})")
     
     # Check if VM is already running
     if status == 'running':
-        logger.info(f"→ f"VM {vmid} is already running")
+        logger.info(f"→ VM {vmid} is already running")
         return True
     
     try:
         # Start the VM
-        logger.info(f"→ f"Starting VM {vmid}...")
+        logger.info(f"→ Starting VM {vmid}...")
         proxmox.nodes(node).qemu(vmid).status.start.post()
         
         # Wait for VM to start
@@ -119,7 +119,7 @@ Examples:
     vm = None
     
     if args.vm_name:
-        logger.info(f"→ f"Searching for VM with name '{args.vm_name}'...")
+        logger.info(f"→ Searching for VM with name '{args.vm_name}'...")
         vm = find_vm_by_name(proxmox, args.vm_name)
         
         if not vm:
@@ -129,7 +129,7 @@ Examples:
         logger.info(f"✓ Found VM {vm['vmid']} ({vm['name']}) on node {vm['node']}")
     
     elif args.vm_id is not None:
-        logger.info(f"→ f"Searching for VM with ID {args.vm_id}...")
+        logger.info(f"→ Searching for VM with ID {args.vm_id}...")
         vm = find_vm_by_id(proxmox, args.vm_id)
         
         if not vm:
