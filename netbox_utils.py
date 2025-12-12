@@ -737,3 +737,63 @@ def delete_ip_address_in_netbox(nb, ip_address: str) -> bool:
             return False
 
 
+def delete_ip_address_by_hostname_in_netbox(nb, hostname: str, domain: Optional[str] = None) -> bool:
+    """
+    Delete IP address from NetBox IPAM by hostname
+    
+    Args:
+        nb: NetBox API instance
+        hostname: Hostname to delete
+        domain: Optional domain name (full FQDN will be hostname.domain)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    # Build full hostname (FQDN) if domain is provided
+    if domain:
+        full_hostname = f"{hostname}.{domain}"
+    else:
+        full_hostname = hostname
+    
+    # Try to find IP addresses by DNS name
+    # Try both FQDN and just hostname (in case domain wasn't used when creating)
+    ip_found = None
+    hostnames_to_try = [full_hostname]
+    if domain:
+        hostnames_to_try.append(hostname)  # Also try without domain
+    
+    for dns_name_to_try in hostnames_to_try:
+        try:
+            ip_addresses = nb.ipam.ip_addresses.filter(dns_name=dns_name_to_try)
+            ip_list = list(ip_addresses)
+            if ip_list:
+                ip_found = ip_list[0]
+                break
+        except Exception as e:
+            logger.error(f"Error searching for hostname '{dns_name_to_try}': {e}")
+            continue
+    
+    if not ip_found:
+        logger.error(f"Hostname '{full_hostname}' not found in NetBox")
+        return False
+    
+    # Get IP address and DNS name for confirmation message
+    ip_with_cidr = str(ip_found.address)
+    dns_name = getattr(ip_found, 'dns_name', None) or ''
+    
+    # Delete the IP address
+    try:
+        ip_found.delete()
+        logger.info(f"✓ Deleted IP address {ip_with_cidr} (DNS name: {dns_name}) from NetBox")
+        return True
+    except Exception as e:
+        error_str = str(e)
+        if '403' in error_str or 'permission' in error_str.lower() or 'forbidden' in error_str.lower():
+            logger.error(f"Insufficient permissions to delete IP address in NetBox")
+            logger.error(f"Please verify token permissions in NetBox")
+            return False
+        else:
+            logger.error(f"Failed to delete IP address: {e}")
+            return False
+
+

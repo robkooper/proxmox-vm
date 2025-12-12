@@ -15,6 +15,12 @@ from proxmox_utils import (
     ProxmoxError,
     ProxmoxConnectionError
 )
+from netbox_utils import (
+    connect_netbox,
+    delete_ip_address_by_hostname_in_netbox,
+    NetboxConnectionError,
+    NetboxDependencyError
+)
 
 
 def find_vms_by_name(proxmox, name: str) -> list:
@@ -202,6 +208,28 @@ def delete_vm(proxmox, vm_info: dict, config: ProxmoxConfig, force: bool = False
         # Delete the associated cloud-init ISO file
         storage = config.get_storage()
         delete_cloud_init_iso(proxmox, node, storage, vmid)
+        
+        # Delete DNS entry from NetBox if configured
+        if config.has_netbox_config():
+            try:
+                netbox_url = config.get_netbox_url()
+                netbox_token = config.get_netbox_token()
+                netbox_domain = config.get_netbox_domain()
+                
+                if netbox_url and netbox_token:
+                    try:
+                        nb = connect_netbox(netbox_url, netbox_token)
+                        logger.info(f"→ Deleting DNS entry for {name}...")
+                        if delete_ip_address_by_hostname_in_netbox(nb, name, netbox_domain):
+                            logger.info(f"✓ DNS entry deleted successfully")
+                        else:
+                            logger.info(f"→ DNS entry not found or already deleted (non-fatal)")
+                    except (NetboxDependencyError, NetboxConnectionError) as e:
+                        logger.info(f"→ Could not delete DNS entry (non-fatal): {e}")
+                    except Exception as e:
+                        logger.info(f"→ Error deleting DNS entry (non-fatal): {e}")
+            except Exception as e:
+                logger.info(f"→ Could not delete DNS entry (non-fatal): {e}")
         
         return True
         
