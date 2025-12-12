@@ -26,22 +26,21 @@ from proxmox_utils import (
     generate_network_config,
     validate_os_name,
     encrypt_password,
-    print_error,
-    print_success,
-    print_info,
-    connect_netbox,
-    check_hostname_available,
-    check_hostname_in_dns,
-    check_ip_assigned_to_hostname,
-    get_available_ip_from_subnet,
-    create_ip_address_in_netbox,
-    create_dns_record_in_netbox,
+    logger,
     setup_default_firewall_rules,
     IMAGES,
     ProxmoxError,
     ProxmoxConnectionError,
     ProxmoxNodeError,
-    ProxmoxVMIDError,
+    ProxmoxVMIDError
+)
+from netbox_utils import (
+    connect_netbox,
+    check_hostname_available,
+    check_ip_assigned_to_hostname,
+    get_available_ip_from_subnet,
+    create_ip_address_in_netbox,
+    get_tenant_id,
     NetboxError,
     NetboxConnectionError,
     NetboxDependencyError
@@ -105,7 +104,7 @@ def set_vm_tags(proxmox, node: str, vmid: int, tags: List[str], max_retries: int
         try:
             # Proxmox API expects tags as comma-separated string
             proxmox.nodes(node).qemu(vmid).config.post(tags=tags_str)
-            print_success(f"Set tags on VM {vmid}: {', '.join(tags)}")
+            logger.info(f"✓ Set tags on VM {vmid}: {', '.join(tags)}")
             return True
         except Exception as e:
             error_str = str(e).lower()
@@ -114,15 +113,15 @@ def set_vm_tags(proxmox, node: str, vmid: int, tags: List[str], max_retries: int
             
             if is_timeout and attempt < max_retries:
                 wait_time = attempt * 2  # Exponential backoff: 2s, 4s, 6s
-                print_info(f"Timeout setting tags on VM {vmid} (attempt {attempt}/{max_retries}), retrying in {wait_time}s...")
+                logger.info(f"→ Timeout setting tags on VM {vmid} (attempt {attempt}/{max_retries}), retrying in {wait_time}s...")
                 time.sleep(wait_time)
                 continue
             else:
                 # Final attempt failed or non-timeout error
-                print_error(f"Failed to set tags on VM {vmid}: {e}")
+                logger.error(f"Failed to set tags on VM {vmid}: {e}")
                 if is_timeout:
-                    print_error("This is a timeout error - the VM was created but tags could not be set.")
-                    print_error("You can manually set tags later in the Proxmox web interface.")
+                    logger.error("This is a timeout error - the VM was created but tags could not be set.")
+                    logger.error("You can manually set tags later in the Proxmox web interface.")
                 # Don't fail VM creation if tags fail - just warn
                 return False
     
@@ -189,7 +188,7 @@ def wait_for_vm_task(proxmox, node: str, vmid: int, task_description: str = "VM 
     elapsed = 0
     check_interval = 2  # Check every 2 seconds
     
-    print_info(f"Waiting for {task_description} to complete...")
+    logger.info(f"→ Waiting for {task_description} to complete...")
     
     while elapsed < max_wait:
         try:
@@ -205,7 +204,7 @@ def wait_for_vm_task(proxmox, node: str, vmid: int, task_description: str = "VM 
             if lock is None or lock == '':
                 # VM is not locked - task is complete
                 if elapsed > 0:
-                    print_success(f"{task_description} completed")
+                    logger.info(f"✓ {task_description} completed")
                 return True
             else:
                 # VM is locked - lock field contains lock info like "create" or task ID
@@ -235,19 +234,19 @@ def wait_for_vm_task(proxmox, node: str, vmid: int, task_description: str = "VM 
         
         # Print progress every 10 seconds
         if elapsed % 10 == 0 and elapsed > 0:
-            print_info(f"Still waiting... ({elapsed}s elapsed)")
+            logger.info(f"→ Still waiting... ({elapsed}s elapsed)")
     
     # Final check - maybe lock was just cleared
     try:
         status = proxmox.nodes(node).qemu(vmid).status.current.get()
         lock = status.get('lock', '')
         if not lock or lock == '' or lock is None:
-            print_info(f"{task_description} completed")
+            logger.info(f"→ {task_description} completed")
             return True
     except:
         pass
     
-    print_error(f"{task_description} timed out after {max_wait} seconds")
+    logger.error(f"{task_description} timed out after {max_wait} seconds")
     return False
 
 
@@ -268,7 +267,7 @@ def wait_for_proxmox_task(proxmox, node: str, upid: str, task_description: str =
     elapsed = 0
     check_interval = 2
     
-    print_info(f"Waiting for {task_description} to complete...")
+    logger.info(f"→ Waiting for {task_description} to complete...")
     
     while elapsed < max_wait:
         try:
@@ -278,15 +277,15 @@ def wait_for_proxmox_task(proxmox, node: str, upid: str, task_description: str =
             
             if current_status == 'stopped':
                 if exitstatus == 'OK':
-                    print_success(f"{task_description} completed successfully")
+                    logger.info(f"✓ {task_description} completed successfully")
                     return True
                 else:
-                    print_error(f"{task_description} failed with exit status: {exitstatus}")
+                    logger.error(f"{task_description} failed with exit status: {exitstatus}")
                     return False
             
             # Task still running, wait
             if elapsed % 10 == 0 and elapsed > 0:
-                print_info(f"Task in progress... ({elapsed}s elapsed)")
+                logger.info(f"→ Task in progress... ({elapsed}s elapsed)")
             
             time.sleep(check_interval)
             elapsed += check_interval
@@ -301,14 +300,14 @@ def wait_for_proxmox_task(proxmox, node: str, upid: str, task_description: str =
                     continue
                 else:
                     # Task completed and cleaned up, assume success
-                    print_info(f"{task_description} appears to have completed")
+                    logger.info(f"→ {task_description} appears to have completed")
                     return True
             
             # Other error, wait and retry
             time.sleep(check_interval)
             elapsed += check_interval
     
-    print_error(f"{task_description} timed out after {max_wait} seconds")
+    logger.error(f"{task_description} timed out after {max_wait} seconds")
     return False
 
 
@@ -333,7 +332,7 @@ def ensure_image_exists(proxmox, node: str, storage: str, os_name: str) -> tuple
     
     proxmox_filename = IMAGES[os_name]['filename']
     
-    print_info(f"Checking for image: {proxmox_filename} in storage {storage}...")
+    logger.info(f"→ Checking for image: {proxmox_filename} in storage {storage}...")
     image_found = False
     image_volid = None
     
@@ -345,7 +344,7 @@ def ensure_image_exists(proxmox, node: str, storage: str, os_name: str) -> tuple
             if proxmox_filename in volid and ('import/' in volid or 'iso/' in volid):
                 image_found = True
                 image_volid = volid
-                print_success(f"Found image: {volid}")
+                logger.info(f"✓ Found image: {volid}")
                 break
     except Exception as e:
         raise ImageNotFoundError(f"Could not check storage contents: {e}") from e
@@ -390,7 +389,7 @@ def setup_netbox_ip(config: ProxmoxConfig, name: str, vmid: int) -> tuple:
         raise NetboxConfigurationError("NetBox configuration incomplete: subnet is required")
     
     # NetBox API-based IP management
-    print_info("NetBox API integration enabled, checking hostname and getting IP address...")
+    logger.info(f"→ NetBox API integration enabled, checking hostname and getting IP address...")
     
     netbox_url = config.get_netbox_url()
     netbox_token = config.get_netbox_token()
@@ -401,7 +400,7 @@ def setup_netbox_ip(config: ProxmoxConfig, name: str, vmid: int) -> tuple:
     try:
         # Connect to NetBox (these exceptions are already defined in proxmox_utils)
         nb = connect_netbox(netbox_url, netbox_token)
-        print_success("Connected to NetBox")
+        logger.info("✓ Connected to NetBox")
         
         # Check if hostname is available
         if not check_hostname_available(nb, name, netbox_domain):
@@ -410,7 +409,7 @@ def setup_netbox_ip(config: ProxmoxConfig, name: str, vmid: int) -> tuple:
                 f"Hostname '{name}' is already in use in NetBox"
                 + (f" (Full hostname would be: {full_hostname})" if netbox_domain else "")
             )
-        print_success(f"Hostname '{name}' is available")
+        logger.info(f"✓ Hostname '{name}' is available")
         
         # Get available IP address from subnet
         ip_address_raw, prefix_obj = get_available_ip_from_subnet(nb, netbox_subnet)
@@ -427,14 +426,14 @@ def setup_netbox_ip(config: ProxmoxConfig, name: str, vmid: int) -> tuple:
             # Derive gateway (assume .1 in subnet)
             gateway = str(subnet_net.network_address + 1)
             
-            print_success(f"Allocated IP address: {ip_with_cidr}")
+            logger.info(f"✓ Allocated IP address: {ip_with_cidr}")
             if gateway:
-                print_info(f"Using gateway: {gateway}")
+                logger.info(f"→ Using gateway: {gateway}")
         except Exception as e:
             raise NetboxError(f"Error formatting IP address: {e}") from e
         
         # Check if IP is already assigned to a different hostname in NetBox
-        print_info(f"Checking if IP {ip_address_raw} is already assigned to a different hostname...")
+        logger.info(f"→ Checking if IP {ip_address_raw} is already assigned to a different hostname...")
         is_conflict, existing_hostname = check_ip_assigned_to_hostname(nb, ip_with_cidr, name, netbox_domain)
         if is_conflict:
             full_hostname = f"{name}.{netbox_domain}" if netbox_domain else name
@@ -444,23 +443,27 @@ def setup_netbox_ip(config: ProxmoxConfig, name: str, vmid: int) -> tuple:
             )
         if existing_hostname:
             # IP is assigned to the same hostname - that's OK
-            print_success(f"IP {ip_address_raw} is already assigned to '{existing_hostname}' (matches expected hostname)")
+            logger.info(f"✓ IP {ip_address_raw} is already assigned to '{existing_hostname}' (matches expected hostname)")
         else:
-            print_success(f"IP {ip_address_raw} is not assigned to any hostname - OK to proceed")
+            logger.info(f"✓ IP {ip_address_raw} is not assigned to any hostname - OK to proceed")
         
-        # Create IP address record in NetBox (pass prefix_obj to use available_ips endpoint)
+        # Get tenant ID if configured
+        tenant_id = None
+        netbox_tenant_slug = config.get_netbox_tenant()
+        if netbox_tenant_slug:
+            tenant_id = get_tenant_id(nb, netbox_tenant_slug)
+            if tenant_id:
+                logger.info(f"→ Using tenant: {netbox_tenant_slug} (ID: {tenant_id})")
+            else:
+                logger.info(f"→ Warning: Tenant '{netbox_tenant_slug}' not found in NetBox, proceeding without tenant")
+        
+        # Create IP address record in NetBox IPAM (pass prefix_obj to use available_ips endpoint)
         # This MUST succeed - stop if it fails to prevent duplicate IPs
-        if not create_ip_address_in_netbox(nb, ip_with_cidr, name, netbox_domain, description=f"VM created by create-vm.py (VMID: {vmid})", prefix_obj=prefix_obj):
+        if not create_ip_address_in_netbox(nb, ip_with_cidr, name, netbox_domain, description=f"VM created by create-vm.py (VMID: {vmid})", prefix_obj=prefix_obj, tenant_id=tenant_id):
             raise NetboxError(
                 "Failed to create IP address record in NetBox. "
                 "Stopping VM creation to prevent IP conflicts"
             )
-        
-        # Create DNS record - this MUST succeed if domain is configured
-        # DNS record creation is required to ensure proper DNS management
-        if netbox_domain:
-            if not create_dns_record_in_netbox(nb, name, ip_address_raw, netbox_domain, required=True):
-                raise NetboxError("Failed to create DNS record in NetBox. Stopping VM creation")
         
     except (NetboxConfigurationError, NetboxError, NetboxConnectionError, NetboxDependencyError):
         # Re-raise NetBox-specific exceptions
@@ -519,7 +522,7 @@ def create_and_upload_cloud_init(
     )
     
     # Create cloud-init ISO file and upload it to Proxmox storage
-    print_info("Creating cloud-init ISO file...")
+    logger.info(f"→ Creating cloud-init ISO file...")
     
     # Use the configured storage from ini file
     iso_storage = storage
@@ -545,7 +548,7 @@ def create_and_upload_cloud_init(
                     "Please enable 'ISO image' in this storage: "
                     "Proxmox UI → Datacenter → Storage → Select storage → Edit → Content → Enable 'ISO image' checkbox"
                 )
-            print_info(f"Using configured storage: {iso_storage}")
+            logger.info(f"→ Using configured storage: {iso_storage}")
         else:
             raise CloudInitError(f"Storage '{iso_storage}' (from proxmox.ini) not found")
     except CloudInitError:
@@ -582,7 +585,7 @@ def create_and_upload_cloud_init(
             f.write(network_config)
         
         # Generate ISO using pycdlib
-        print_info("Generating ISO image...")
+        logger.info(f"→ Generating ISO image...")
         
         try:
             iso = pycdlib.PyCdlib()
@@ -601,13 +604,13 @@ def create_and_upload_cloud_init(
             iso.write(iso_path)
             iso.close()
             
-            print_success(f"ISO created: {iso_filename} (volume ID: cidata)")
+            logger.info(f"✓ ISO created: {iso_filename} (volume ID: cidata)")
         except Exception as e:
             raise CloudInitError(f"Failed to create ISO with pycdlib: {e}") from e
         
         # Check if ISO already exists in storage and delete it
         expected_volid = f"{iso_storage}:iso/{iso_filename}"
-        print_info(f"Checking if ISO already exists in storage: {expected_volid}")
+        logger.info(f"→ Checking if ISO already exists in storage: {expected_volid}")
         
         actual_volid = None
         try:
@@ -616,21 +619,21 @@ def create_and_upload_cloud_init(
                 volid = item.get('volid', '')
                 if (iso_filename in volid and 'iso' in volid) or expected_volid in volid:
                     actual_volid = volid
-                    print_info(f"Existing ISO found in storage: {volid}")
-                    print_info("Deleting existing ISO to ensure fresh upload...")
+                    logger.info(f"→ Existing ISO found in storage: {volid}")
+                    logger.info(f"→ Deleting existing ISO to ensure fresh upload...")
                     try:
                         proxmox.nodes(node).storage(iso_storage).content(volid).delete()
-                        print_success(f"Existing ISO deleted: {volid}")
+                        logger.info(f"✓ Existing ISO deleted: {volid}")
                         time.sleep(1)
                     except Exception as del_err:
-                        print_error(f"Failed to delete existing ISO: {del_err}")
-                        print_info("Will attempt to upload anyway (may fail if file is locked)")
+                        logger.error(f"Failed to delete existing ISO: {del_err}")
+                        logger.info(f"→ Will attempt to upload anyway (may fail if file is locked)")
                     break
         except Exception as check_err:
-            print_info(f"Could not check for existing ISO: {check_err}")
+            logger.info(f"→ Could not check for existing ISO: {check_err}")
         
         # Upload the ISO
-        print_info(f"Uploading ISO to storage '{iso_storage}'...")
+        logger.info(f"→ Uploading ISO to storage '{iso_storage}'...")
         
         auth_method, auth_params = config.get_auth_method()
         upload_url = f"{config.config.get('proxmox', 'host')}/api2/json/nodes/{node}/storage/{iso_storage}/upload"
@@ -669,7 +672,7 @@ def create_and_upload_cloud_init(
                 pass
         
         # Verify ISO exists in storage
-        print_info(f"Verifying ISO exists in storage: {expected_volid}")
+        logger.info(f"→ Verifying ISO exists in storage: {expected_volid}")
         time.sleep(1)
         
         iso_verified = False
@@ -680,14 +683,14 @@ def create_and_upload_cloud_init(
                 if (iso_filename in volid and 'iso' in volid) or expected_volid in volid:
                     iso_verified = True
                     actual_volid = volid
-                    print_success(f"ISO verified in storage: {volid}")
+                    logger.info(f"✓ ISO verified in storage: {volid}")
                     break
         except Exception as verify_err:
-            print_info(f"Could not immediately verify ISO: {verify_err}")
+            logger.info(f"→ Could not immediately verify ISO: {verify_err}")
         
         # Wait for task if ISO not found and we have a UPID
         if not iso_verified and upload_upid:
-            print_info(f"ISO upload task started: {upload_upid}")
+            logger.info(f"→ ISO upload task started: {upload_upid}")
             if not wait_for_proxmox_task(proxmox, node, upload_upid, "ISO upload", max_wait=300):
                 raise CloudInitError("ISO upload task did not complete successfully")
             
@@ -699,10 +702,10 @@ def create_and_upload_cloud_init(
                     if (iso_filename in volid and 'iso' in volid) or expected_volid in volid:
                         iso_verified = True
                         actual_volid = volid
-                        print_success(f"ISO verified in storage: {volid}")
+                        logger.info(f"✓ ISO verified in storage: {volid}")
                         break
             except Exception as verify_err:
-                print_info(f"Could not verify ISO after task: {verify_err}")
+                logger.info(f"→ Could not verify ISO after task: {verify_err}")
         
         # Final verification with retries
         if not iso_verified:
@@ -715,7 +718,7 @@ def create_and_upload_cloud_init(
                         if (iso_filename in volid and 'iso' in volid) or expected_volid in volid:
                             iso_verified = True
                             actual_volid = volid
-                            print_success(f"ISO verified in storage: {volid}")
+                            logger.info(f"✓ ISO verified in storage: {volid}")
                             break
                     
                     if iso_verified:
@@ -724,7 +727,7 @@ def create_and_upload_cloud_init(
                     if attempt < max_verify_attempts - 1:
                         time.sleep(2)
                         if attempt % 2 == 0:
-                            print_info(f"Still waiting for ISO to appear in storage... (attempt {attempt + 1}/{max_verify_attempts})")
+                            logger.info(f"→ Still waiting for ISO to appear in storage... (attempt {attempt + 1}/{max_verify_attempts})")
                 except Exception as verify_err:
                     if attempt < max_verify_attempts - 1:
                         time.sleep(2)
@@ -741,7 +744,7 @@ def create_and_upload_cloud_init(
         
         # Use the actual volid from storage
         cloud_init_iso_path = actual_volid if actual_volid else expected_volid
-        print_success(f"ISO ready: {cloud_init_iso_path}")
+        logger.info(f"✓ ISO ready: {cloud_init_iso_path}")
         
     except CloudInitError:
         raise
@@ -806,7 +809,8 @@ def create_vm_instance(
     proxmox_filename: str,
     cloud_init_iso_path: str,
     puppet: bool,
-    ip_address: Optional[str]
+    ip_address: Optional[str],
+    tags: Optional[List[str]] = None
 ) -> bool:
     """
     Create VM instance with disk attachment (handles multiple fallback strategies)
@@ -826,6 +830,7 @@ def create_vm_instance(
         cloud_init_iso_path: Path to cloud-init ISO in storage
         puppet: Enable puppet agent
         ip_address: IP address (for exception if manual intervention needed)
+        tags: Optional list of additional tags to apply to the VM
     
     Returns:
         True if disk was successfully attached, False otherwise
@@ -852,75 +857,81 @@ def create_vm_instance(
     
     # Try method 1: Use import-from parameter
     try:
-        print_info("Trying to create VM with disk using import-from parameter...")
-        print_info(f"Source image: {image_volid}")
+        logger.info(f"→ Trying to create VM with disk using import-from parameter...")
+        logger.info(f"→ Source image: {image_volid}")
         
         import_volid = image_volid
         if 'iso/' in import_volid:
             import_volid = import_volid.replace(':iso/', ':import/')
-            print_info(f"Converting to import path for import-from: {import_volid}")
+            logger.info(f"→ Converting to import path for import-from: {import_volid}")
         
         vm_params = vm_params_base.copy()
         vm_params['scsi0'] = f"{storage}:0,import-from={import_volid}"
         
         result = proxmox.nodes(node).qemu.post(**vm_params)
         verify_vm_created(proxmox, node, vmid, result)
-        print_success(f"VM {vmid} created with disk importing from {import_volid}")
+        logger.info(f"✓ VM {vmid} created with disk importing from {import_volid}")
         
         # Wait for disk import
         if not wait_for_vm_task(proxmox, node, vmid, "Disk import", max_wait=600):
-            print_error("Disk import did not complete - VM may still be functional")
+            logger.error("Disk import did not complete - VM may still be functional")
         
         time.sleep(2)
         
         # Set tags
-        tags = ['createvm']
+        vm_tags = []
         if puppet:
-            tags.append('puppet')
-        set_vm_tags(proxmox, node, vmid, tags)
+            vm_tags.append('puppet')
+        if tags:
+            vm_tags.extend(tags)
+        set_vm_tags(proxmox, node, vmid, vm_tags)
         
         disk_attached = True
         return True
         
     except Exception as e1:
-        print_info(f"Import-from method failed: {e1}")
+        logger.info(f"→ Import-from method failed: {e1}")
         
         # Try method 2: Reference file directly
         try:
-            print_info("Trying to attach disk using file_id reference...")
+            logger.info(f"→ Trying to attach disk using file_id reference...")
             vm_params = vm_params_base.copy()
             vm_params['scsi0'] = f"{storage}:{disk_size},format=qcow2,file={image_volid}"
             result = proxmox.nodes(node).qemu.post(**vm_params)
             verify_vm_created(proxmox, node, vmid, result)
-            print_success(f"VM {vmid} created with disk reference")
+            logger.info(f"✓ VM {vmid} created with disk reference")
             
             wait_for_vm_task(proxmox, node, vmid, "VM creation", max_wait=60)
             time.sleep(2)
             
-            tags = ['createvm']
+            vm_tags = []
             if puppet:
-                tags.append('puppet')
-            set_vm_tags(proxmox, node, vmid, tags)
+                vm_tags.append('puppet')
+            if tags:
+                vm_tags.extend(tags)
+            set_vm_tags(proxmox, node, vmid, vm_tags)
             
             disk_attached = True
             return True
         except Exception as e2:
-            print_info(f"File reference method failed: {e2}")
+            logger.info(f"→ File reference method failed: {e2}")
             
             # Try method 3: Create VM without disk, then attach
             try:
-                print_info("Creating VM without disk, will try to attach...")
+                logger.info(f"→ Creating VM without disk, will try to attach...")
                 result = proxmox.nodes(node).qemu.post(**vm_params_base)
                 verify_vm_created(proxmox, node, vmid, result)
-                print_success(f"VM {vmid} created")
+                logger.info(f"✓ VM {vmid} created")
                 
                 wait_for_vm_task(proxmox, node, vmid, "VM creation", max_wait=60)
                 time.sleep(2)
                 
-                tags = ['createvm']
+                vm_tags = []
                 if puppet:
-                    tags.append('puppet')
-                set_vm_tags(proxmox, node, vmid, tags)
+                    vm_tags.append('puppet')
+                if tags:
+                    vm_tags.extend(tags)
+                set_vm_tags(proxmox, node, vmid, vm_tags)
                 
                 attachment_attempts = [
                     f"{storage}:{disk_size},format=qcow2,import-from={image_volid}",
@@ -930,35 +941,37 @@ def create_vm_instance(
                 
                 for attempt in attachment_attempts:
                     try:
-                        print_info(f"Trying disk attachment format: {attempt[:60]}...")
+                        logger.info(f"→ Trying disk attachment format: {attempt[:60]}...")
                         proxmox.nodes(node).qemu(vmid).config.post(scsi0=attempt)
-                        print_success(f"Disk attached successfully")
+                        logger.info(f"✓ Disk attached successfully")
                         disk_attached = True
                         return True
                     except Exception as e3:
-                        print_info(f"Attachment attempt failed: {str(e3)[:80]}")
+                        logger.info(f"→ Attachment attempt failed: {str(e3)[:80]}")
                         continue
                         
             except Exception as e4:
-                print_info(f"VM creation failed: {e4}")
+                logger.info(f"→ VM creation failed: {e4}")
     
     # Fallback: Create VM with empty disk
     if not disk_attached:
         try:
-            print_info("Creating VM with empty disk as fallback...")
+            logger.info(f"→ Creating VM with empty disk as fallback...")
             vm_params_fallback = vm_params_base.copy()
             vm_params_fallback['scsi0'] = f"{storage}:{disk_size},format=qcow2"
             result = proxmox.nodes(node).qemu.post(**vm_params_fallback)
             verify_vm_created(proxmox, node, vmid, result)
-            print_success(f"VM {vmid} created with empty disk")
+            logger.info(f"✓ VM {vmid} created with empty disk")
             
             wait_for_vm_task(proxmox, node, vmid, "VM creation", max_wait=60)
             time.sleep(2)
             
-            tags = ['createvm']
+            vm_tags = []
             if puppet:
-                tags.append('puppet')
-            set_vm_tags(proxmox, node, vmid, tags)
+                vm_tags.append('puppet')
+            if tags:
+                vm_tags.extend(tags)
+            set_vm_tags(proxmox, node, vmid, vm_tags)
         except Exception as e:
             raise ProxmoxError(f"Failed to create VM: {e}") from e
         
@@ -990,7 +1003,8 @@ def create_vm(
     puppet: bool = False,
     puppet_server: Optional[str] = None,
     node: Optional[str] = None,
-    start: bool = True
+    start: bool = True,
+    tags: Optional[List[str]] = None
 ) -> tuple:
     """
     Create a new VM from downloaded Ubuntu cloud image
@@ -999,7 +1013,7 @@ def create_vm(
         proxmox: ProxmoxAPI instance
         config: ProxmoxConfig instance
         name: VM name
-        os_name: OS type (ubuntu22, ubuntu24)
+        os_name: OS type (ubuntu22, ubuntu24, rocky8, etc.)
         cores: Number of CPU cores
         memory: Memory in MB
         disk_size: Disk size in GB
@@ -1010,6 +1024,7 @@ def create_vm(
         puppet_server: Puppet server hostname (required if puppet=True)
         node: Target node (auto-select if None)
         start: Start VM after creation
+        tags: Optional list of additional tags to apply to the VM (OS tag is automatically added)
     
     Returns:
         Tuple of (VM ID, IP address) where IP address can be None if not configured
@@ -1019,26 +1034,14 @@ def create_vm(
         supported = ', '.join(sorted(IMAGES.keys()))
         raise ValueError(f"Unsupported OS: {os_name}. Supported: {supported}")
     
-    # Check if hostname exists in DNS before proceeding
-    print_info(f"Checking if hostname '{name}' exists in DNS...")
-    domain = config.get_netbox_domain() if config.has_netbox_config() else None
-    if check_hostname_in_dns(name, domain):
-        full_hostname = f"{name}.{domain}" if domain else name
-        raise NetboxConfigurationError(
-            f"Hostname '{name}' already exists in DNS"
-            + (f" (Full hostname: {full_hostname})" if domain else "")
-            + ". Please choose a different hostname."
-        )
-    print_success(f"Hostname '{name}' is not in DNS - OK to proceed")
-    
     storage = config.get_storage()
     
     # Select node
     if not node:
-        print_info("Auto-selecting best node...")
+        logger.info(f"→ Auto-selecting best node...")
         node = select_best_node(proxmox, memory, cores)
     
-    print_info(f"Target node: {node}")
+    logger.info(f"→ Target node: {node}")
     
     # Ensure image exists in storage
     image_volid, proxmox_filename = ensure_image_exists(proxmox, node, storage, os_name)
@@ -1046,7 +1049,7 @@ def create_vm(
     # Get next available VM ID
     vmid_min, vmid_max = config.get_vmid_range()
     vmid = get_next_vmid(proxmox, vmid_min, vmid_max)
-    print_info(f"Assigned VM ID: {vmid}")
+    logger.info(f"→ Assigned VM ID: {vmid}")
     
     # Set up NetBox IP allocation
     ip_address, gateway, dns_servers = setup_netbox_ip(config, name, vmid)
@@ -1067,8 +1070,13 @@ def create_vm(
         dns_servers=dns_servers
     )
     
+    # Build tags list: OS tag + user-provided tags
+    vm_tags = [os_name]  # Add OS shortname as tag (e.g., ubuntu22, ubuntu24)
+    if tags:
+        vm_tags.extend(tags)
+    
     # Create VM instance with disk attachment
-    print_info(f"Creating new VM {vmid}...")
+    logger.info(f"→ Creating new VM {vmid}...")
     create_vm_instance(
         proxmox=proxmox,
         config=config,
@@ -1083,12 +1091,13 @@ def create_vm(
         proxmox_filename=proxmox_filename,
         cloud_init_iso_path=cloud_init_iso_path,
         puppet=puppet,
-        ip_address=ip_address
+        ip_address=ip_address,
+        tags=vm_tags
     )
     
     # Resize disk if needed
     if disk_size > 3:  # Ubuntu images are typically ~2-3GB
-        print_info(f"Resizing disk to {disk_size}GB...")
+        logger.info(f"→ Resizing disk to {disk_size}GB...")
         try:
             resize_result = proxmox.nodes(node).qemu(vmid).resize.put(
                 disk='scsi0',
@@ -1106,11 +1115,11 @@ def create_vm(
             else:
                 wait_for_vm_task(proxmox, node, vmid, "Disk resize", max_wait=300)
             
-            print_success(f"Disk resized to {disk_size}GB")
+            logger.info(f"✓ Disk resized to {disk_size}GB")
         except Exception as resize_err:
             error_str = str(resize_err)
             if "lock" in error_str.lower() or "timeout" in error_str.lower():
-                print_info(f"Disk resize waiting for lock...")
+                logger.info(f"→ Disk resize waiting for lock...")
                 wait_for_vm_task(proxmox, node, vmid, "Disk resize", max_wait=300)
                 try:
                     proxmox.nodes(node).qemu(vmid).resize.put(
@@ -1118,15 +1127,15 @@ def create_vm(
                         size=f"{disk_size}G"
                     )
                     wait_for_vm_task(proxmox, node, vmid, "Disk resize", max_wait=300)
-                    print_success(f"Disk resized to {disk_size}GB")
+                    logger.info(f"✓ Disk resized to {disk_size}GB")
                 except Exception as retry_err:
-                    print_error(f"Disk resize failed: {retry_err}")
+                    logger.error(f"Disk resize failed: {retry_err}")
             else:
-                print_error(f"Disk resize failed: {resize_err}")
+                logger.error(f"Disk resize failed: {resize_err}")
     
     # Start VM if requested
     if start:
-        print_info("Starting VM...")
+        logger.info(f"→ Starting VM...")
         try:
             start_result = proxmox.nodes(node).qemu(vmid).status.start.post()
             start_upid = None
@@ -1140,25 +1149,25 @@ def create_vm(
             else:
                 wait_for_vm_task(proxmox, node, vmid, "VM start", max_wait=120)
             
-            print_success("VM started")
+            logger.info(f"✓ VM started")
         except Exception as start_err:
             error_str = str(start_err)
             if "lock" in error_str.lower() or "timeout" in error_str.lower():
-                print_info("VM start waiting for lock...")
+                logger.info(f"→ VM start waiting for lock...")
                 wait_for_vm_task(proxmox, node, vmid, "VM start", max_wait=120)
                 try:
                     status = proxmox.nodes(node).qemu(vmid).status.current.get()
                     if status.get('status') == 'running':
-                        print_success("VM started")
+                        logger.info(f"✓ VM started")
                     else:
-                        print_error(f"VM start may have failed, status: {status.get('status')}")
+                        logger.error(f"VM start may have failed, status: {status.get('status')}")
                 except:
                     pass
             else:
-                print_error(f"VM start failed: {start_err}")
+                logger.error(f"VM start failed: {start_err}")
     
     # Set up default firewall rules (ports 22, 80, 443, and ICMP)
-    print_info("Setting up default firewall rules...")
+    logger.info(f"→ Setting up default firewall rules...")
     setup_default_firewall_rules(proxmox, node, vmid)
     
     return (vmid, ip_address)
@@ -1181,6 +1190,10 @@ Examples:
   
   # Create VM without starting it
   %(prog)s -n newvm -o ubuntu24 -u admin -k ~/.ssh/id_rsa.pub --no-start
+  
+  # Create VM with custom tags
+  %(prog)s -n webserver -o ubuntu24 -u admin -k ~/.ssh/id_rsa.pub --tag production --tag web
+  %(prog)s -n webserver -o ubuntu24 -u admin -k ~/.ssh/id_rsa.pub -t production -t web
         '''
     )
     
@@ -1218,6 +1231,8 @@ Examples:
                         help='Specific node to create VM on (default: auto-select)')
     parser.add_argument('--no-start', action='store_true',
                         help='Do not start the VM after creation')
+    parser.add_argument('-t', '--tag', dest='tags', action='append',
+                        help='Additional tag to apply to the VM (can be specified multiple times, OS tag is automatically added)')
     
     # Configuration
     parser.add_argument('--config', default='proxmox.ini',
@@ -1229,8 +1244,8 @@ Examples:
     try:
         config = ProxmoxConfig(args.config)
     except Exception as e:
-        print_error(f"Failed to load configuration: {e}")
-        print_info("Copy proxmox.ini.example to proxmox.ini and configure it")
+        logger.error(f"Failed to load configuration: {e}")
+        logger.info(f"→ Copy proxmox.ini.example to proxmox.ini and configure it")
         sys.exit(1)
     
     # Get defaults from config
@@ -1245,7 +1260,7 @@ Examples:
             ssh_key = read_ssh_key(args.ssh_key_file)
             ssh_keys.append(ssh_key)
         except (FileNotFoundError, ValueError, IOError) as e:
-            print_error(str(e))
+            logger.error(str(e))
             sys.exit(1)
     
     # Handle password options
@@ -1255,28 +1270,28 @@ Examples:
         try:
             plain_password = getpass.getpass("Enter password for user: ")
             if not plain_password:
-                print_error("Password cannot be empty")
+                logger.error("Password cannot be empty")
                 sys.exit(1)
             confirm_password = getpass.getpass("Confirm password: ")
             if plain_password != confirm_password:
-                print_error("Passwords do not match")
+                logger.error("Passwords do not match")
                 sys.exit(1)
             encrypted_password = encrypt_password(plain_password)
-            print_success("Password encrypted successfully")
+            logger.info(f"✓ Password encrypted successfully")
         except (KeyboardInterrupt, EOFError):
-            print_error("\nPassword input cancelled")
+            logger.error("\nPassword input cancelled")
             sys.exit(1)
     elif args.password:
         # Validate that the password is in encrypted format
         if not args.password.startswith('$6$'):
-            print_error("Password must be an encrypted hash (SHA-512 format: $6$rounds=4096$salt$hash)")
-            print_error("Use --plain-password to provide a plaintext password, or generate an encrypted hash with: mkpasswd --method=SHA-512")
+            logger.error("Password must be an encrypted hash (SHA-512 format: $6$rounds=4096$salt$hash)")
+            logger.error("Use --plain-password to provide a plaintext password, or generate an encrypted hash with: mkpasswd --method=SHA-512")
             sys.exit(1)
         encrypted_password = args.password
     
     # Validate authentication method
     if not ssh_keys and not encrypted_password:
-        print_error("Must provide either SSH key (--keyfile) or password (--password or --plain-password)")
+        logger.error("Must provide either SSH key (--keyfile) or password (--password or --plain-password)")
         sys.exit(1)
     
     # Validate puppet configuration
@@ -1288,17 +1303,17 @@ Examples:
         else:
             puppet_server = config.get_puppet_server()
             if not puppet_server:
-                print_error("Puppet is enabled (-p) but no puppet server configured.")
-                print_error("Either set 'puppet_server' in proxmox.ini or use --puppet-server option")
+                logger.error("Puppet is enabled (-p) but no puppet server configured.")
+                logger.error("Either set 'puppet_server' in proxmox.ini or use --puppet-server option")
                 sys.exit(1)
     
     # Connect to Proxmox
     try:
         proxmox = connect_proxmox(config)
     except ProxmoxConnectionError as e:
-        print_error(str(e))
+        logger.error(str(e))
         sys.exit(1)
-    print_success("Connected to Proxmox")
+    logger.info(f"✓ Connected to Proxmox")
     
     # Display configuration
     print("\n" + "=" * 80)
@@ -1316,6 +1331,7 @@ Examples:
     if args.puppet:
         print(f"  Puppet Server: {puppet_server}")
     print(f"  Node:      {args.node if args.node else 'Auto-select'}")
+    print(f"  Tags:      {args.os_name}" + (f", {', '.join(args.tags)}" if args.tags else ""))
     print("=" * 80 + "\n")
     
     # Create VM
@@ -1334,11 +1350,12 @@ Examples:
             puppet=args.puppet,
             puppet_server=puppet_server if args.puppet else None,
             node=args.node,
-            start=not args.no_start
+            start=not args.no_start,
+            tags=args.tags
         )
         
         print("\n" + "=" * 80)
-        print_success(f"VM successfully created!")
+        logger.info(f"✓ VM successfully created!")
         print("=" * 80)
         print(f"  VM ID:   {vmid}")
         print(f"  Name:    {args.name}")
@@ -1353,21 +1370,21 @@ Examples:
         print("=" * 80 + "\n")
         
     except (ImageNotFoundError, ValueError) as e:
-        print_error(str(e))
+        logger.error(str(e))
         sys.exit(1)
     except (NetboxConfigurationError, NetboxError, NetboxConnectionError, NetboxDependencyError) as e:
-        print_error(str(e))
+        logger.error(str(e))
         sys.exit(1)
     except CloudInitError as e:
-        print_error(str(e))
+        logger.error(str(e))
         sys.exit(1)
     except (ProxmoxError, ProxmoxConnectionError, ProxmoxNodeError, ProxmoxVMIDError) as e:
-        print_error(str(e))
+        logger.error(str(e))
         sys.exit(1)
     except ManualInterventionRequired as e:
         # VM was created but requires manual disk import
         print("\n" + "=" * 80)
-        print_error("VM CREATED BUT REQUIRES MANUAL INTERVENTION")
+        logger.error("VM CREATED BUT REQUIRES MANUAL INTERVENTION")
         print("=" * 80)
         print(f"  VM ID:   {e.vmid}")
         print(f"  Name:    {args.name}")
@@ -1378,27 +1395,27 @@ Examples:
         print(f"  Status:  Created with empty disk (manual import required)")
         print("=" * 80)
         
-        print_error(f"\n{'=' * 80}")
-        print_error("IMPORTANT: Manual disk import required")
-        print_error(f"{'=' * 80}")
-        print_error(f"\nThe VM {e.vmid} was created with an empty disk.")
-        print_error(f"The Ubuntu image is in storage but needs to be imported manually.")
-        print_error(f"\nImage location: {e.image_volid}")
-        print_error(f"\nRun these commands on Proxmox node '{e.node}':")
-        print_error(f"\n  # Remove the empty disk first")
-        print_error(f"  qm set {e.vmid} --delete scsi0")
-        print_error(f"\n  # Import the image as a disk")
-        print_error(f"  qm disk import {e.vmid} {e.proxmox_filename} {e.storage} --format qcow2")
-        print_error(f"\n  # Attach the imported disk")
-        print_error(f"  qm set {e.vmid} --scsi0 {e.storage}:vm-{e.vmid}-disk-0")
-        print_error(f"\n  # Resize disk if needed (currently set to {e.disk_size}GB)")
+        logger.error(f"\n{'=' * 80}")
+        logger.error("IMPORTANT: Manual disk import required")
+        logger.error(f"{'=' * 80}")
+        logger.error(f"\nThe VM {e.vmid} was created with an empty disk.")
+        logger.error(f"The Ubuntu image is in storage but needs to be imported manually.")
+        logger.error(f"\nImage location: {e.image_volid}")
+        logger.error(f"\nRun these commands on Proxmox node '{e.node}':")
+        logger.error(f"\n  # Remove the empty disk first")
+        logger.error(f"  qm set {e.vmid} --delete scsi0")
+        logger.error(f"\n  # Import the image as a disk")
+        logger.error(f"  qm disk import {e.vmid} {e.proxmox_filename} {e.storage} --format qcow2")
+        logger.error(f"\n  # Attach the imported disk")
+        logger.error(f"  qm set {e.vmid} --scsi0 {e.storage}:vm-{e.vmid}-disk-0")
+        logger.error(f"\n  # Resize disk if needed (currently set to {e.disk_size}GB)")
         if e.disk_size > 2:
-            print_error(f"  qm disk resize {e.vmid} scsi0 {e.disk_size}G")
-        print_error(f"\n  # Start the VM")
-        print_error(f"  qm start {e.vmid}")
-        print_error(f"\n{'=' * 80}")
-        print_info(f"\nNote: This is a Proxmox API limitation - disk import from iso storage cannot be automated.")
-        print_info(f"VM {e.vmid} is ready for manual disk import steps above.")
+            logger.error(f"  qm disk resize {e.vmid} scsi0 {e.disk_size}G")
+        logger.error(f"\n  # Start the VM")
+        logger.error(f"  qm start {e.vmid}")
+        logger.error(f"\n{'=' * 80}")
+        logger.info(f"→ \nNote: This is a Proxmox API limitation - disk import from iso storage cannot be automated.")
+        logger.info(f"→ VM {e.vmid} is ready for manual disk import steps above.")
         print("=" * 80 + "\n")
         sys.exit(1)
         
@@ -1406,7 +1423,7 @@ Examples:
         print("\n\nOperation cancelled by user")
         sys.exit(1)
     except Exception as e:
-        print_error(f"Unexpected error: {e}")
+        logger.error(f"Unexpected error: {e}")
         sys.exit(1)
 
 

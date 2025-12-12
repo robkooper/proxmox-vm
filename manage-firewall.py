@@ -17,9 +17,7 @@ from proxmox_utils import (
     add_firewall_rule,
     delete_firewall_rule,
     get_firewall_rules,
-    print_error,
-    print_success,
-    print_info,
+    logger,
     ProxmoxError,
     ProxmoxConnectionError
 )
@@ -103,7 +101,7 @@ def add_rule(proxmox, hostname: str, port: Optional[int], source_ip: Optional[st
     # Find VM by hostname
     vm = find_vm_by_name(proxmox, hostname)
     if not vm:
-        print_error(f"VM '{hostname}' not found")
+        logger.error(f"VM '{hostname}' not found")
         sys.exit(1)
     
     vmid = vm['vmid']
@@ -116,13 +114,13 @@ def add_rule(proxmox, hostname: str, port: Optional[int], source_ip: Optional[st
     else:
         comment = f"Port {port} from {source_ip}" if source_ip else f"Port {port}"
     
-    print_info(f"Adding firewall rule to VM {vmid} ({hostname}) on node {node}")
-    print_info(f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} {'from ' + source_ip if source_ip else '(all sources)'}")
+    logger.info(f"→ f"Adding firewall rule to VM {vmid} ({hostname}) on node {node}")
+    logger.info(f"→ f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} {'from ' + source_ip if source_ip else '(all sources)'}")
     
     if add_firewall_rule(proxmox, node, vmid, port, protocol, source_ip, comment):
-        print_success("Firewall rule added successfully")
+        logger.info("✓ Firewall rule added successfully")
     else:
-        print_error("Failed to add firewall rule")
+        logger.error("Failed to add firewall rule")
         sys.exit(1)
 
 
@@ -139,7 +137,7 @@ def delete_rule(proxmox, hostname: str, port: Optional[int], source_ip: Optional
     # Find VM by hostname
     vm = find_vm_by_name(proxmox, hostname)
     if not vm:
-        print_error(f"VM '{hostname}' not found")
+        logger.error(f"VM '{hostname}' not found")
         sys.exit(1)
     
     vmid = vm['vmid']
@@ -147,16 +145,16 @@ def delete_rule(proxmox, hostname: str, port: Optional[int], source_ip: Optional
     
     protocol = determine_protocol(port)
     
-    print_info(f"Deleting firewall rule from VM {vmid} ({hostname}) on node {node}")
+    logger.info(f"→ f"Deleting firewall rule from VM {vmid} ({hostname}) on node {node}")
     if source_ip:
-        print_info(f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} from {source_ip}")
+        logger.info(f"→ f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} from {source_ip}")
     else:
-        print_info(f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} (all sources)")
+        logger.info(f"→ f"  Rule: {protocol.upper()} port {port if port else 'ICMP'} (all sources)")
     
     if delete_firewall_rule(proxmox, node, vmid, port, protocol, source_ip):
-        print_success("Firewall rule deleted successfully")
+        logger.info("✓ Firewall rule deleted successfully")
     else:
-        print_error("Failed to delete firewall rule (rule may not exist)")
+        logger.error("Failed to delete firewall rule (rule may not exist)")
         sys.exit(1)
 
 
@@ -171,19 +169,19 @@ def list_rules(proxmox, hostname: str):
     # Find VM by hostname
     vm = find_vm_by_name(proxmox, hostname)
     if not vm:
-        print_error(f"VM '{hostname}' not found")
+        logger.error(f"VM '{hostname}' not found")
         sys.exit(1)
     
     vmid = vm['vmid']
     node = vm['node']
     
-    print_info(f"Firewall rules for VM {vmid} ({hostname}) on node {node}:")
+    logger.info(f"→ f"Firewall rules for VM {vmid} ({hostname}) on node {node}:")
     print()
     
     rules = get_firewall_rules(proxmox, node, vmid)
     
     if not rules:
-        print_info("No firewall rules found")
+        logger.info(f"→ "No firewall rules found")
         return
     
     # Print header
@@ -238,24 +236,24 @@ Examples:
     
     # Validate IP address if provided
     if args.source_ip and not validate_ip_address(args.source_ip):
-        print_error(f"Invalid IP address: {args.source_ip}")
+        logger.error(f"Invalid IP address: {args.source_ip}")
         sys.exit(1)
     
     # Load configuration
     try:
         config = ProxmoxConfig(args.config)
     except Exception as e:
-        print_error(f"Failed to load configuration: {e}")
-        print_info("Copy proxmox.ini.example to proxmox.ini and configure it")
+        logger.error(f"Failed to load configuration: {e}")
+        logger.info(f"→ "Copy proxmox.ini.example to proxmox.ini and configure it")
         sys.exit(1)
     
     # Connect to Proxmox
     try:
         proxmox = connect_proxmox(config)
     except ProxmoxConnectionError as e:
-        print_error(str(e))
+        logger.error(str(e))
         sys.exit(1)
-    print_success("Connected to Proxmox")
+    logger.info("✓ Connected to Proxmox")
     
     # Parse hostname:port
     if args.action == 'list':
@@ -265,7 +263,7 @@ Examples:
         try:
             hostname, port = parse_hostname_port(args.hostname_port)
         except ValueError as e:
-            print_error(str(e))
+            logger.error(str(e))
             sys.exit(1)
     
     # Perform action
@@ -280,7 +278,7 @@ Examples:
         print("\n\nOperation cancelled by user")
         sys.exit(1)
     except Exception as e:
-        print_error(f"Unexpected error: {e}")
+        logger.error(f"Unexpected error: {e}")
         sys.exit(1)
 
 

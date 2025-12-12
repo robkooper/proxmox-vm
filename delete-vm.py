@@ -11,9 +11,7 @@ import sys
 from proxmox_utils import (
     ProxmoxConfig,
     connect_proxmox,
-    print_error,
-    print_success,
-    print_info,
+    logger,
     ProxmoxError,
     ProxmoxConnectionError
 )
@@ -50,10 +48,10 @@ def find_vms_by_name(proxmox, name: str) -> list:
                             'status': vm.get('status', 'unknown')
                         })
             except Exception as e:
-                print_error(f"Error querying node {node_name}: {e}")
+                logger.error(f"Error querying node {node_name}: {e}")
                 continue
     except Exception as e:
-        print_error(f"Error querying nodes: {e}")
+        logger.error(f"Error querying nodes: {e}")
         raise
     
     return matching_vms
@@ -85,10 +83,10 @@ def find_vm_by_id(proxmox, vmid: int) -> dict:
                             'status': vm.get('status', 'unknown')
                         }
             except Exception as e:
-                print_error(f"Error querying node {node_name}: {e}")
+                logger.error(f"Error querying node {node_name}: {e}")
                 continue
     except Exception as e:
-        print_error(f"Error querying nodes: {e}")
+        logger.error(f"Error querying nodes: {e}")
         raise
     
     return None
@@ -123,22 +121,22 @@ def delete_cloud_init_iso(proxmox, node: str, storage: str, vmid: int) -> bool:
                 break
         
         if matching_volid:
-            print_info(f"Deleting cloud-init ISO: {matching_volid}")
+            logger.info(f"→ f"Deleting cloud-init ISO: {matching_volid}")
             try:
                 proxmox.nodes(node).storage(storage).content(matching_volid).delete()
-                print_success(f"Cloud-init ISO deleted: {matching_volid}")
+                logger.info(f"✓ f"Cloud-init ISO deleted: {matching_volid}")
                 return True
             except Exception as del_err:
-                print_error(f"Failed to delete cloud-init ISO: {del_err}")
+                logger.error(f"Failed to delete cloud-init ISO: {del_err}")
                 return False
         else:
             # ISO not found - that's okay, it might have been deleted already
-            print_info(f"Cloud-init ISO not found (may have been deleted already): {expected_volid}")
+            logger.info(f"→ f"Cloud-init ISO not found (may have been deleted already): {expected_volid}")
             return False
             
     except Exception as e:
         # If we can't check/delete the ISO, log it but don't fail the VM deletion
-        print_info(f"Could not delete cloud-init ISO (non-fatal): {e}")
+        logger.info(f"→ f"Could not delete cloud-init ISO (non-fatal): {e}")
         return False
 
 
@@ -163,23 +161,23 @@ def delete_vm(proxmox, vm_info: dict, config: ProxmoxConfig, force: bool = False
     # Check if VM ID is within the configured range
     vmid_min, vmid_max = config.get_vmid_range()
     if vmid < vmid_min or vmid > vmid_max:
-        print_error(f"\nVM {vmid} ({name}) is outside the configured VM ID range ({vmid_min}-{vmid_max})")
-        print_error("Deletion aborted for safety. To delete VMs outside this range, adjust vmid_min/vmid_max in proxmox.ini")
+        logger.error(f"\nVM {vmid} ({name}) is outside the configured VM ID range ({vmid_min}-{vmid_max})")
+        logger.error("Deletion aborted for safety. To delete VMs outside this range, adjust vmid_min/vmid_max in proxmox.ini")
         return False
     
-    print_info(f"\nVM {vmid} ({name}) on node {node} (status: {status})")
+    logger.info(f"→ f"\nVM {vmid} ({name}) on node {node} (status: {status})")
     
     if not force:
         # Prompt for confirmation
         response = input(f"Delete VM {vmid} ({name})? [y/N]: ").strip().lower()
         if response != 'y':
-            print_info(f"Skipping VM {vmid}")
+            logger.info(f"→ f"Skipping VM {vmid}")
             return False
     
     try:
         # Stop VM if it's running
         if status == 'running':
-            print_info(f"Stopping VM {vmid}...")
+            logger.info(f"→ f"Stopping VM {vmid}...")
             proxmox.nodes(node).qemu(vmid).status.stop.post()
             
             # Wait for VM to stop
@@ -194,12 +192,12 @@ def delete_vm(proxmox, vm_info: dict, config: ProxmoxConfig, force: bool = False
                 elapsed += 1
             
             if elapsed >= max_wait:
-                print_error(f"VM {vmid} did not stop within timeout, attempting to delete anyway...")
+                logger.error(f"VM {vmid} did not stop within timeout, attempting to delete anyway...")
         
         # Delete the VM
-        print_info(f"Deleting VM {vmid}...")
+        logger.info(f"→ f"Deleting VM {vmid}...")
         proxmox.nodes(node).qemu(vmid).delete()
-        print_success(f"VM {vmid} ({name}) deleted successfully")
+        logger.info(f"✓ f"VM {vmid} ({name}) deleted successfully")
         
         # Delete the associated cloud-init ISO file
         storage = config.get_storage()
@@ -208,7 +206,7 @@ def delete_vm(proxmox, vm_info: dict, config: ProxmoxConfig, force: bool = False
         return True
         
     except Exception as e:
-        print_error(f"Failed to delete VM {vmid}: {e}")
+        logger.error(f"Failed to delete VM {vmid}: {e}")
         return False
 
 
@@ -245,54 +243,54 @@ Examples:
     
     # Validate arguments
     if not args.vm_name and args.vm_id is None:
-        print_error("Must specify either --name (-n) or --id (-i)")
+        logger.error("Must specify either --name (-n) or --id (-i)")
         parser.print_help()
         sys.exit(1)
     
     if args.vm_name and args.vm_id is not None:
-        print_error("Cannot specify both --name and --id")
+        logger.error("Cannot specify both --name and --id")
         sys.exit(1)
     
     # Load configuration
     try:
         config = ProxmoxConfig(args.config)
     except Exception as e:
-        print_error(f"Failed to load configuration: {e}")
+        logger.error(f"Failed to load configuration: {e}")
         sys.exit(1)
     
     # Connect to Proxmox
     try:
         proxmox = connect_proxmox(config)
     except ProxmoxConnectionError as e:
-        print_error(str(e))
+        logger.error(str(e))
         sys.exit(1)
-    print_success("Connected to Proxmox")
+    logger.info(f"✓ "Connected to Proxmox")
     
     # Find VMs to delete
     vms_to_delete = []
     
     if args.vm_name:
-        print_info(f"Searching for VMs with name '{args.vm_name}'...")
+        logger.info(f"→ f"Searching for VMs with name '{args.vm_name}'...")
         vms_to_delete = find_vms_by_name(proxmox, args.vm_name)
         
         if not vms_to_delete:
-            print_error(f"No VMs found with name '{args.vm_name}'")
+            logger.error(f"No VMs found with name '{args.vm_name}'")
             sys.exit(1)
         
-        print_success(f"Found {len(vms_to_delete)} VM(s) with name '{args.vm_name}'")
+        logger.info(f"✓ f"Found {len(vms_to_delete)} VM(s) with name '{args.vm_name}'")
         for vm in vms_to_delete:
-            print_info(f"  VM {vm['vmid']} on node {vm['node']} (status: {vm['status']})")
+            logger.info(f"→ f"  VM {vm['vmid']} on node {vm['node']} (status: {vm['status']})")
     
     elif args.vm_id is not None:
-        print_info(f"Searching for VM with ID {args.vm_id}...")
+        logger.info(f"→ f"Searching for VM with ID {args.vm_id}...")
         vm = find_vm_by_id(proxmox, args.vm_id)
         
         if not vm:
-            print_error(f"VM with ID {args.vm_id} not found")
+            logger.error(f"VM with ID {args.vm_id} not found")
             sys.exit(1)
         
         vms_to_delete = [vm]
-        print_success(f"Found VM {args.vm_id} ({vm['name']}) on node {vm['node']}")
+        logger.info(f"✓ f"Found VM {args.vm_id} ({vm['name']}) on node {vm['node']}")
     
     # Delete VMs
     deleted_count = 0
@@ -312,9 +310,9 @@ Examples:
     print(f"{'=' * 80}")
     
     if deleted_count > 0:
-        print_success("Deletion completed")
+        logger.info(f"✓ "Deletion completed")
     else:
-        print_info("No VMs were deleted")
+        logger.info(f"→ "No VMs were deleted")
 
 
 if __name__ == '__main__':
