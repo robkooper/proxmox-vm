@@ -16,7 +16,6 @@ import sys
 import yaml
 from typing import Dict, List, Optional, Tuple
 from proxmoxer import ProxmoxAPI
-from passlib.context import CryptContext
 
 # Configure logging
 # Use a logger named after the module
@@ -448,15 +447,17 @@ def encrypt_password(plain_password: str) -> str:
         ImportError: If passlib is not installed
     """
     try:
-        # Create a crypt context for SHA-512 with 4096 rounds (same as mkpasswd default)
-        crypt_context = CryptContext(schemes=['sha512_crypt'], sha512_crypt__rounds=4096)
-        # Hash the password - this produces format: $6$rounds=4096$salt$hash
-        return crypt_context.hash(plain_password)
+        from passlib.context import CryptContext
     except ImportError:
         raise ImportError(
             "passlib is required for password encryption. "
             "Install it with: pip install 'passlib[bcrypt]'"
         )
+    
+    # Create a crypt context for SHA-512 with 4096 rounds (same as mkpasswd default)
+    crypt_context = CryptContext(schemes=['sha512_crypt'], sha512_crypt__rounds=4096)
+    # Hash the password - this produces format: $6$rounds=4096$salt$hash
+    return crypt_context.hash(plain_password)
 
 
 def generate_cloud_init_config(

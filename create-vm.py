@@ -845,6 +845,7 @@ def create_vm_instance(
         'name': name,
         'memory': memory,
         'cores': cores,
+        'cpu': 'host',
         'net0': f"virtio,bridge={bridge},firewall=1",
         'scsihw': 'virtio-scsi-pci',
         'ostype': 'l26',
