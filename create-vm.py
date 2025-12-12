@@ -486,7 +486,8 @@ def create_and_upload_cloud_init(
     puppet_server: Optional[str],
     ip_address: Optional[str],
     gateway: Optional[str],
-    dns_servers: List[str]
+    dns_servers: List[str],
+    os_name: Optional[str] = None
 ) -> str:
     """
     Create and upload cloud-init ISO to Proxmox storage
@@ -504,6 +505,7 @@ def create_and_upload_cloud_init(
         ip_address: IP address with CIDR (optional)
         gateway: Gateway IP (optional)
         dns_servers: List of DNS servers
+        os_name: OS name (e.g., 'ubuntu22', 'rocky8') - used to determine network interface
     
     Returns:
         Path to cloud-init ISO in Proxmox storage
@@ -579,7 +581,8 @@ def create_and_upload_cloud_init(
         network_config = generate_network_config(
             ip_address=ip_address,
             gateway=gateway,
-            dns_servers=dns_servers if dns_servers else None
+            dns_servers=dns_servers if dns_servers else None,
+            os_name=os_name
         )
         with open(network_config_path, 'w') as f:
             f.write(network_config)
@@ -1068,7 +1071,8 @@ def create_vm(
         puppet_server=puppet_server if puppet and puppet_server else None,
         ip_address=ip_address,
         gateway=gateway,
-        dns_servers=dns_servers
+        dns_servers=dns_servers,
+        os_name=os_name
     )
     
     # Build tags list: OS tag + user-provided tags

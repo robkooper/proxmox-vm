@@ -546,11 +546,31 @@ def generate_cloud_init_config(
     return "#cloud-config\n" + yaml.dump(config, default_flow_style=False)
 
 
+def get_network_interface_for_os(os_name: str) -> str:
+    """
+    Get the network interface name for a given OS
+    
+    Args:
+        os_name: OS name (e.g., 'ubuntu22', 'rocky8', etc.)
+    
+    Returns:
+        Network interface name ('ens18' for Ubuntu, 'eth0' for Rocky Linux)
+    """
+    if os_name.startswith('ubuntu'):
+        return 'ens18'
+    elif os_name.startswith('rocky'):
+        return 'eth0'
+    else:
+        # Default to ens18 for unknown OS types (most modern Linux distros use this)
+        return 'ens18'
+
+
 def generate_network_config(
     ip_address: Optional[str] = None,
     gateway: Optional[str] = None,
     dns_servers: Optional[List[str]] = None,
-    interface: str = 'ens18'
+    interface: Optional[str] = None,
+    os_name: Optional[str] = None
 ) -> str:
     """
     Generate cloud-init network-config file for static IP configuration
@@ -559,11 +579,19 @@ def generate_network_config(
         ip_address: IP address with CIDR notation (e.g., '192.168.1.100/24')
         gateway: Gateway IP address (if None, will try to derive from IP subnet)
         dns_servers: List of DNS server IP addresses
-        interface: Network interface name (default: 'ens18' for virtio)
+        interface: Network interface name (if None, will be determined from os_name)
+        os_name: OS name (e.g., 'ubuntu22', 'rocky8') - used to determine interface if interface is None
     
     Returns:
         network-config YAML as string
     """
+    # Determine interface name
+    if interface is None:
+        if os_name:
+            interface = get_network_interface_for_os(os_name)
+        else:
+            # Default to ens18 if neither interface nor os_name is provided
+            interface = 'ens18'
     network_config = {
         'version': 2,
         'ethernets': {
