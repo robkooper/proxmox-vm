@@ -11,7 +11,6 @@ verify_ssl = true
 # API request timeout in seconds (default: 30, increase if you get timeout errors)
 timeout = 30
 
-[auth]
 # Authentication Method 1: API Token (recommended)
 # Create a token in Proxmox: Datacenter -> Permissions -> API Tokens
 # Format: user@realm!tokenid (e.g., root@pam!mytoken)
@@ -40,8 +39,33 @@ memory = 2048
 # Default disk size in GB
 disk_size = 20
 
+[network]
+# Network configuration for VMs
+
+# IP address assignment method:
+#   "dhcp"   - Use DHCP (default)
+#   "netbox" - Allocate IP from NetBox
+#   <ip>     - Use specific IP address (e.g., 192.168.1.100)
+ipaddress = dhcp
+
+# DNS registration method:
+#   "none"   - Don't register DNS (default)
+#   "netbox" - Register DNS in NetBox
+register = none
+
+# DNS domain name (e.g., example.com)
+# Used for creating DNS records and full FQDN
+# Required if register = netbox
+domain = 
+
+# DNS servers (space-separated list, e.g., 8.8.8.8 8.8.4.4)
+# These will be configured in the VM's network settings
+# Default: Cloudflare (1.1.1.1) and Google (8.8.8.8)
+dns_servers = 1.1.1.1 8.8.8.8 
+
 [netbox]
 # NetBox integration (optional)
+# Required if ipaddress = netbox or register = netbox
 # Leave this section empty or remove it to disable NetBox integration
 
 # NetBox API URL (e.g., https://netbox.example.com)
@@ -49,16 +73,11 @@ url =
 # NetBox API token (create one in NetBox: Admin → API Tokens)
 token = 
 
-# Common settings (required for NetBox integration)
 # Subnet/mask in CIDR notation (e.g., 192.168.1.0/24)
+# Required if ipaddress = netbox
 # The script will find an available IP address from this subnet
 subnet = 
-# DNS domain name (e.g., example.com)
-# Used for creating DNS records and full FQDN
-domain = 
-# DNS servers (space-separated list, e.g., 8.8.8.8 8.8.4.4)
-# These will be configured in the VM's network settings
-dns_servers = 
+
 # Tenant slug (optional)
 # IP addresses will be assigned to this tenant in NetBox
 tenant =

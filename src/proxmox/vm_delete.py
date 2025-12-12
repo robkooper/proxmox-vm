@@ -8,14 +8,14 @@ Supports deleting multiple VMs with the same name.
 
 import argparse
 import sys
-from proxmox_utils import (
+from proxmox.proxmox_utils import (
     ProxmoxConfig,
     connect_proxmox,
     logger,
     ProxmoxError,
     ProxmoxConnectionError
 )
-from netbox_utils import (
+from proxmox.netbox_utils import (
     connect_netbox,
     delete_ip_address_by_hostname_in_netbox,
     NetboxConnectionError,

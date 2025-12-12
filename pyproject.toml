@@ -1,0 +1,27 @@
+[project]
+name = "proxmox"
+version = "0.1.0"
+description = "Proxmox VM Management CLI Tool"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "proxmoxer>=2.0.0",
+    "requests>=2.31.0",
+    "requests-toolbelt>=1.0.0",
+    "PyYAML>=6.0",
+    "pycdlib>=1.14.0",
+    "pynetbox>=7.0.0",
+    "passlib[bcrypt]>=1.7.4",
+    "dnspython>=2.4.0",
+]
+
+[project.scripts]
+proxmox = "proxmox.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Note: To add dev dependencies, use:
+# [project.optional-dependencies]
+# dev = ["pytest", "black", etc.]

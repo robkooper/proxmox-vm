@@ -10,11 +10,13 @@ import base64
 import configparser
 import ipaddress
 import logging
+import os
 import secrets
 import socket
 import sys
-import yaml
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import yaml
 from proxmoxer import ProxmoxAPI
 
 # Configure logging
@@ -95,21 +97,76 @@ IMAGES = {
 }
 
 
+def find_config_file(config_file: Optional[str] = None) -> str:
+    """
+    Find configuration file in standard locations.
+    
+    Search order:
+    1. Explicit path (if provided)
+    2. Current directory: ./proxmox.ini
+    3. XDG config directory: ~/.config/proxmox/proxmox.ini
+    4. Home directory: ~/.proxmox.ini
+    
+    Args:
+        config_file: Explicit path to config file, or None to search
+        
+    Returns:
+        Path to found config file
+        
+    Raises:
+        FileNotFoundError: If config file not found in any location
+    """
+    # If explicit path provided, use it directly
+    if config_file:
+        if os.path.isfile(config_file):
+            return config_file
+        raise FileNotFoundError(f"Configuration file '{config_file}' not found")
+    
+    # Search in order of preference
+    search_paths = [
+        # Current directory
+        Path.cwd() / "proxmox.ini",
+        # XDG config directory (~/.config/proxmox/proxmox.ini)
+        Path.home() / ".config" / "proxmox" / "proxmox.ini",
+        # Home directory (~/.proxmox.ini)
+        Path.home() / ".proxmox.ini",
+    ]
+    
+    for path in search_paths:
+        if path.is_file():
+            return str(path)
+    
+    # Not found in any location
+    raise FileNotFoundError(
+        f"Configuration file 'proxmox.ini' not found in any of the following locations:\n"
+        f"  - {Path.cwd() / 'proxmox.ini'}\n"
+        f"  - {Path.home() / '.config' / 'proxmox' / 'proxmox.ini'}\n"
+        f"  - {Path.home() / '.proxmox.ini'}\n"
+        f"\nCopy proxmox.ini.example to one of these locations and configure it."
+    )
+
+
 class ProxmoxConfig:
     """Load and parse Proxmox configuration from INI file"""
     
-    def __init__(self, config_file: str = "proxmox.ini"):
-        self.config_file = config_file
+    def __init__(self, config_file: Optional[str] = None):
+        """
+        Initialize ProxmoxConfig.
+        
+        Args:
+            config_file: Path to config file, or None to search in standard locations
+        """
+        self.config_file = find_config_file(config_file)
         self.config = configparser.ConfigParser()
         
-        if not self.config.read(config_file):
-            raise FileNotFoundError(f"Configuration file '{config_file}' not found")
+        if not self.config.read(self.config_file):
+            raise FileNotFoundError(f"Configuration file '{self.config_file}' not found")
         
         self._validate_config()
     
     def _validate_config(self):
         """Validate required configuration sections exist"""
-        required_sections = ['proxmox', 'auth', 'defaults']
+        required_sections = ['proxmox', 'defaults']
         for section in required_sections:
             if not self.config.has_section(section):
                 raise ValueError(f"Missing required section [{section}] in config file")
@@ -147,8 +204,14 @@ class ProxmoxConfig:
         Returns: (method, credentials_dict)
         method is either 'token' or 'password'
         """
-        token_id = self.config.get('auth', 'token_id', fallback='').strip()
-        token_secret = self.config.get('auth', 'token_secret', fallback='').strip()
+        # Try [proxmox] section first, fallback to [auth] for backward compatibility
+        token_id = self.config.get('proxmox', 'token_id', fallback='').strip()
+        token_secret = self.config.get('proxmox', 'token_secret', fallback='').strip()
+        
+        # Fallback to [auth] section if not found in [proxmox]
+        if not token_id or not token_secret:
+            token_id = self.config.get('auth', 'token_id', fallback='').strip()
+            token_secret = self.config.get('auth', 'token_secret', fallback='').strip()
         
         if token_id and token_secret:
             # Split token_id into user@realm and token_name
@@ -164,8 +227,14 @@ class ProxmoxConfig:
                 'token_value': token_secret
             })
         
-        username = self.config.get('auth', 'user', fallback='').strip()
-        password = self.config.get('auth', 'password', fallback='').strip()
+        # Try [proxmox] section first, fallback to [auth] for backward compatibility
+        username = self.config.get('proxmox', 'user', fallback='').strip()
+        password = self.config.get('proxmox', 'password', fallback='').strip()
+        
+        # Fallback to [auth] section if not found in [proxmox]
+        if not username or not password:
+            username = self.config.get('auth', 'user', fallback='').strip()
+            password = self.config.get('auth', 'password', fallback='').strip()
         
         if username and password:
             return ('password', {'user': username, 'password': password})
@@ -247,17 +316,59 @@ class ProxmoxConfig:
         subnet = self.config.get('netbox', 'subnet', fallback='').strip()
         return subnet if subnet else None
     
+    def get_network_ipaddress(self) -> str:
+        """Get IP address assignment method: 'dhcp', 'netbox', or specific IP address"""
+        if not self.config.has_section('network'):
+            return 'dhcp'
+        ipaddress = self.config.get('network', 'ipaddress', fallback='dhcp').strip().lower()
+        return ipaddress if ipaddress else 'dhcp'
+    
+    def get_network_register(self) -> str:
+        """Get DNS registration method: 'none' or 'netbox'"""
+        if not self.config.has_section('network'):
+            return 'none'
+        register = self.config.get('network', 'register', fallback='none').strip().lower()
+        return register if register else 'none'
+    
+    def get_network_domain(self) -> Optional[str]:
+        """Get DNS domain name from network section"""
+        if not self.config.has_section('network'):
+            return None
+        domain = self.config.get('network', 'domain', fallback='').strip()
+        return domain if domain else None
+    
+    def get_network_dns_servers(self) -> List[str]:
+        """Get DNS servers as list (space-separated in config) from network section"""
+        if not self.config.has_section('network'):
+            # Default: Cloudflare and Google DNS
+            return ['1.1.1.1', '8.8.8.8']
+        dns_servers = self.config.get('network', 'dns_servers', fallback='').strip()
+        if not dns_servers:
+            # Default: Cloudflare and Google DNS
+            return ['1.1.1.1', '8.8.8.8']
+        return [s.strip() for s in dns_servers.split() if s.strip()]
+    
     def get_netbox_dns_servers(self) -> List[str]:
-        """Get DNS servers as list (space-separated in config)"""
+        """Get DNS servers as list (space-separated in config) - deprecated, use get_network_dns_servers"""
+        # Try network section first, fallback to netbox for backward compatibility
+        dns_servers = self.get_network_dns_servers()
+        if dns_servers:
+            return dns_servers
         if not self.has_netbox_config():
-            return []
+            # Default: Cloudflare and Google DNS
+            return ['1.1.1.1', '8.8.8.8']
         dns_servers = self.config.get('netbox', 'dns_servers', fallback='').strip()
         if not dns_servers:
-            return []
+            # Default: Cloudflare and Google DNS
+            return ['1.1.1.1', '8.8.8.8']
         return [s.strip() for s in dns_servers.split() if s.strip()]
     
     def get_netbox_domain(self) -> Optional[str]:
-        """Get DNS domain name"""
+        """Get DNS domain name - deprecated, use get_network_domain"""
+        # Try network section first, fallback to netbox for backward compatibility
+        domain = self.get_network_domain()
+        if domain:
+            return domain
         if not self.has_netbox_config():
             return None
         domain = self.config.get('netbox', 'domain', fallback='').strip()

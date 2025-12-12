@@ -17,7 +17,7 @@ import tempfile
 import time
 from typing import List, Optional
 import requests
-from proxmox_utils import (
+from proxmox.proxmox_utils import (
     ProxmoxConfig,
     connect_proxmox,
     select_best_node,
@@ -34,7 +34,7 @@ from proxmox_utils import (
     ProxmoxNodeError,
     ProxmoxVMIDError
 )
-from netbox_utils import (
+from proxmox.netbox_utils import (
     connect_netbox,
     check_hostname_available,
     check_ip_assigned_to_hostname,

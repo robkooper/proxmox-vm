@@ -11,7 +11,7 @@ import socket
 from typing import Optional, Tuple
 
 # Import logger from proxmox_utils
-from proxmox_utils import logger
+from proxmox.proxmox_utils import logger
 
 
 # Custom exceptions for NetBox error handling
@@ -795,5 +795,6 @@ def delete_ip_address_by_hostname_in_netbox(nb, hostname: str, domain: Optional[
         else:
             logger.error(f"Failed to delete IP address: {e}")
             return False
+
 
 

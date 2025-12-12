@@ -1,22 +1,42 @@
-#!/usr/bin/env python3
-"""
-Proxmox Ubuntu Image Management
-
-Download and update Ubuntu cloud images in Proxmox storage.
-Supports Ubuntu 22.04 (Jammy) and 24.04 (Noble) LTS releases.
-"""
+"""Image management commands"""
 
 import argparse
 import sys
 import time
-from proxmox_utils import (
+
+from proxmox.proxmox_utils import (
     ProxmoxConfig,
     connect_proxmox,
-    logger,
     IMAGES,
-    ProxmoxError,
+    logger,
     ProxmoxConnectionError
 )
+
+
+def check_image_exists(proxmox, node: str, storage: str, filename: str) -> bool:
+    """
+    Check if an image already exists in Proxmox storage
+    
+    Args:
+        proxmox: ProxmoxAPI instance
+        node: Node name
+        storage: Storage name
+        filename: Image filename to check
+    
+    Returns:
+        True if image exists, False otherwise
+    """
+    try:
+        storage_contents = proxmox.nodes(node).storage(storage).content.get()
+        for item in storage_contents:
+            volid = item.get('volid', '')
+            # Check if filename matches (could be in different formats)
+            if filename in volid or volid.endswith(f'/{filename}') or volid.endswith(filename):
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Error checking for existing image: {e}")
+        return False
 
 
 def download_image_to_proxmox(
@@ -69,7 +89,7 @@ def download_image_to_proxmox(
             logger.info(f"→ Could not verify storage configuration: {e}")
             # Continue anyway - download might still work
         
-        # Check if file already exists and delete it
+        # Check if file already exists and delete it (for update/delete operations)
         try:
             storage_contents = proxmox.nodes(node).storage(storage).content.get()
             # Look for the file in storage contents
@@ -208,6 +228,44 @@ def download_image_to_proxmox(
         raise
 
 
+def delete_image_from_proxmox(proxmox, node: str, storage: str, filename: str) -> bool:
+    """
+    Delete an image from Proxmox storage
+    
+    Args:
+        proxmox: ProxmoxAPI instance
+        node: Node name
+        storage: Storage name
+        filename: Image filename to delete
+    
+    Returns:
+        True if deleted successfully, False otherwise
+    """
+    try:
+        storage_contents = proxmox.nodes(node).storage(storage).content.get()
+        matching_volid = None
+        
+        for item in storage_contents:
+            volid = item.get('volid', '')
+            # Check if filename matches (could be in different formats)
+            if filename in volid or volid.endswith(f'/{filename}') or volid.endswith(filename):
+                matching_volid = volid
+                break
+        
+        if not matching_volid:
+            logger.info(f"→ Image '{filename}' not found in storage")
+            return False
+        
+        logger.info(f"→ Deleting image: {matching_volid}")
+        proxmox.nodes(node).storage(storage).content(matching_volid).delete()
+        logger.info(f"✓ Image deleted: {filename}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to delete image: {e}")
+        return False
+
+
 def list_images(proxmox, config: ProxmoxConfig):
     """List available cloud images in Proxmox storage"""
     print("\nCloud Images in Storage:")
@@ -249,37 +307,84 @@ def list_images(proxmox, config: ProxmoxConfig):
     print("-" * 80)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Download and update Ubuntu cloud images in Proxmox storage',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
-Examples:
-  # Download/update images for all Ubuntu versions (default action)
-  %(prog)s
-  
-  # Download/update Ubuntu 24.04 image only
-  %(prog)s --os ubuntu24
-  
-  # List available images in storage
-  %(prog)s --list
-        '''
-    )
+def get_node(proxmox, node_arg: str = None) -> str:
+    """
+    Get node name, either from argument or auto-select first online node
     
-    parser.add_argument('--config', default='proxmox.ini',
-                        help='Path to configuration file (default: proxmox.ini)')
-    parser.add_argument('--list', action='store_true',
-                        help='List available images in storage (default: download/update images)')
-    parser.add_argument('--os', choices=list(IMAGES.keys()),
-                        help='Specific OS to download/update (default: all)')
+    Args:
+        proxmox: ProxmoxAPI instance
+        node_arg: Optional node name from argument
+    
+    Returns:
+        Node name
+    """
+    if node_arg:
+        return node_arg
+    
+    nodes = proxmox.nodes.get()
+    if not nodes:
+        raise Exception("No nodes found")
+    
+    # Use first online node
+    for n in nodes:
+        if n['status'] == 'online':
+            return n['node']
+    
+    raise Exception("No online nodes found")
+
+
+def get_image_list(image_arg: str) -> list:
+    """
+    Get list of images to process based on argument
+    
+    Args:
+        image_arg: Image name or "all" for all images
+    
+    Returns:
+        List of image names (OS keys from IMAGES)
+    """
+    if image_arg.lower() == 'all':
+        return list(IMAGES.keys())
+    
+    if image_arg not in IMAGES:
+        valid_images = ', '.join(sorted(IMAGES.keys()))
+        raise ValueError(f"Invalid image name: {image_arg}. Valid options: {valid_images}, or 'all'")
+    
+    return [image_arg]
+
+
+def setup_create_parser(parser):
+    """Setup argument parser for images create command"""
+    parser.add_argument('image',
+                        help='Image name to create (or "all" for all images). Valid options: ' + ', '.join(sorted(IMAGES.keys())) + ', all')
     parser.add_argument('--node',
                         help='Specific node to use (default: auto-select first online node)')
-    
-    args = parser.parse_args()
-    
+
+
+def setup_delete_parser(parser):
+    """Setup argument parser for images delete command"""
+    parser.add_argument('image',
+                        help='Image name to delete (or "all" for all images). Valid options: ' + ', '.join(sorted(IMAGES.keys())) + ', all')
+    parser.add_argument('--node',
+                        help='Specific node to use (default: auto-select first online node)')
+
+
+def setup_update_parser(parser):
+    """Setup argument parser for images update command"""
+    parser.add_argument('image',
+                        help='Image name to update (or "all" for all images). Valid options: ' + ', '.join(sorted(IMAGES.keys())) + ', all')
+    parser.add_argument('--node',
+                        help='Specific node to use (default: auto-select first online node)')
+
+
+def handle_create(args):
+    """Handle images create command"""
     # Load configuration
     try:
         config = ProxmoxConfig(args.config)
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Failed to load configuration: {e}")
         sys.exit(1)
@@ -292,32 +397,27 @@ Examples:
         sys.exit(1)
     logger.info("✓ Connected to Proxmox")
     
-    # List images if requested
-    if args.list:
-        list_images(proxmox, config)
-        return
+    # Get list of images to process
+    try:
+        image_list = get_image_list(args.image)
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
     
-    # Default action: Download/update images
-    # If no OS specified, download all available images
-    os_list = [args.os] if args.os else list(IMAGES.keys())
+    # Get node
+    try:
+        node = get_node(proxmox, args.node)
+    except Exception as e:
+        logger.error(str(e))
+        sys.exit(1)
+    
     storage = config.get_storage()
     
-    # Select node
-    if not args.node:
-        nodes = proxmox.nodes.get()
-        if not nodes:
-            logger.error("No nodes found")
-            sys.exit(1)
-        # Use first online node
-        for n in nodes:
-            if n['status'] == 'online':
-                args.node = n['node']
-                break
-        if not args.node:
-            logger.error("No online nodes found")
-            sys.exit(1)
+    # Process each image
+    created_count = 0
+    skipped_count = 0
     
-    for os_name in os_list:
+    for os_name in image_list:
         print(f"\n{'=' * 80}")
         print(f"Processing: {IMAGES[os_name]['name']}")
         print('=' * 80)
@@ -325,19 +425,154 @@ Examples:
         image_url = IMAGES[os_name]['url']
         filename = IMAGES[os_name]['filename']
         
+        # Check if image already exists
+        if check_image_exists(proxmox, node, storage, filename):
+            logger.info(f"→ Image '{filename}' already exists in storage, skipping creation")
+            skipped_count += 1
+            continue
+        
         try:
             downloaded_filename = download_image_to_proxmox(
-                proxmox, args.node, storage, image_url, filename
+                proxmox, node, storage, image_url, filename
             )
-            logger.info(f"✓ Image '{downloaded_filename}' ready in storage '{storage}'")
+            logger.info(f"✓ Image '{downloaded_filename}' created in storage '{storage}'")
+            created_count += 1
         except Exception as e:
-            logger.error(f"Failed to download {os_name}: {e}")
+            logger.error(f"Failed to create {os_name}: {e}")
             continue
     
     print(f"\n{'=' * 80}")
-    logger.info("✓ All operations completed")
+    logger.info(f"✓ Operations completed: {created_count} created, {skipped_count} skipped")
     print('=' * 80)
 
 
-if __name__ == '__main__':
-    main()
+def handle_delete(args):
+    """Handle images delete command"""
+    # Load configuration
+    try:
+        config = ProxmoxConfig(args.config)
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {e}")
+        sys.exit(1)
+    
+    # Connect to Proxmox
+    try:
+        proxmox = connect_proxmox(config)
+    except ProxmoxConnectionError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    logger.info("✓ Connected to Proxmox")
+    
+    # Get list of images to process
+    try:
+        image_list = get_image_list(args.image)
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    
+    # Get node
+    try:
+        node = get_node(proxmox, args.node)
+    except Exception as e:
+        logger.error(str(e))
+        sys.exit(1)
+    
+    storage = config.get_storage()
+    
+    # Process each image
+    deleted_count = 0
+    not_found_count = 0
+    
+    for os_name in image_list:
+        print(f"\n{'=' * 80}")
+        print(f"Processing: {IMAGES[os_name]['name']}")
+        print('=' * 80)
+        
+        filename = IMAGES[os_name]['filename']
+        
+        if delete_image_from_proxmox(proxmox, node, storage, filename):
+            deleted_count += 1
+        else:
+            not_found_count += 1
+    
+    print(f"\n{'=' * 80}")
+    logger.info(f"✓ Operations completed: {deleted_count} deleted, {not_found_count} not found")
+    print('=' * 80)
+
+
+def handle_update(args):
+    """Handle images update command"""
+    # Load configuration
+    try:
+        config = ProxmoxConfig(args.config)
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {e}")
+        sys.exit(1)
+    
+    # Connect to Proxmox
+    try:
+        proxmox = connect_proxmox(config)
+    except ProxmoxConnectionError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    logger.info("✓ Connected to Proxmox")
+    
+    # Get list of images to process
+    try:
+        image_list = get_image_list(args.image)
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    
+    # Get node
+    try:
+        node = get_node(proxmox, args.node)
+    except Exception as e:
+        logger.error(str(e))
+        sys.exit(1)
+    
+    storage = config.get_storage()
+    
+    # Process each image (update = delete + create)
+    updated_count = 0
+    failed_count = 0
+    
+    for os_name in image_list:
+        print(f"\n{'=' * 80}")
+        print(f"Processing: {IMAGES[os_name]['name']}")
+        print('=' * 80)
+        
+        image_url = IMAGES[os_name]['url']
+        filename = IMAGES[os_name]['filename']
+        
+        # Delete existing image if it exists
+        if check_image_exists(proxmox, node, storage, filename):
+            logger.info(f"→ Deleting existing image '{filename}'...")
+            if not delete_image_from_proxmox(proxmox, node, storage, filename):
+                logger.error(f"Failed to delete existing image, skipping update")
+                failed_count += 1
+                continue
+            # Wait a moment for deletion to complete
+            time.sleep(2)
+        
+        # Download new image
+        try:
+            downloaded_filename = download_image_to_proxmox(
+                proxmox, node, storage, image_url, filename
+            )
+            logger.info(f"✓ Image '{downloaded_filename}' updated in storage '{storage}'")
+            updated_count += 1
+        except Exception as e:
+            logger.error(f"Failed to update {os_name}: {e}")
+            failed_count += 1
+            continue
+    
+    print(f"\n{'=' * 80}")
+    logger.info(f"✓ Operations completed: {updated_count} updated, {failed_count} failed")
+    print('=' * 80)
