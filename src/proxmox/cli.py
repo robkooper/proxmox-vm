@@ -8,7 +8,7 @@ Main CLI application that provides commands for VM, DNS, and firewall management
 import argparse
 import sys
 
-from proxmox.commands import vm, dns, firewall, images as image
+from proxmox.commands import vm, dns, firewall, images as image, tag
 
 
 def main():
@@ -42,6 +42,12 @@ Examples:
   proxmox image create all
   proxmox image delete ubuntu22
   proxmox image update ubuntu24
+  
+  # Tag operations
+  proxmox tag create webserver production
+  proxmox tag create 100 web  # Using VM ID
+  proxmox tag delete webserver production
+  proxmox tag delete 100 web  # Using VM ID
         '''
     )
     
@@ -130,6 +136,22 @@ Examples:
                               help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
     image.setup_update_parser(image_update)
     
+    # Tag command
+    tag_parser = subparsers.add_parser('tag', help='Tag management commands')
+    tag_subparsers = tag_parser.add_subparsers(dest='action', help='Tag action', required=True)
+    
+    # Tag create
+    tag_create = tag_subparsers.add_parser('create', help='Add a tag to a VM')
+    tag_create.add_argument('--config', default=None,
+                            help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
+    tag.setup_create_parser(tag_create)
+    
+    # Tag delete
+    tag_delete = tag_subparsers.add_parser('delete', help='Remove a tag from a VM')
+    tag_delete.add_argument('--config', default=None,
+                            help='Path to configuration file (default: searches ./proxmox.ini, ~/.config/proxmox/proxmox.ini, ~/.proxmox.ini)')
+    tag.setup_delete_parser(tag_delete)
+    
     args = parser.parse_args()
     
     # Execute the appropriate command
@@ -160,6 +182,11 @@ Examples:
                 image.handle_delete(args)
             elif args.action == 'update':
                 image.handle_update(args)
+        elif args.command == 'tag':
+            if args.action == 'create':
+                tag.handle_create(args)
+            elif args.action == 'delete':
+                tag.handle_delete(args)
     except KeyboardInterrupt:
         print("\n\nOperation cancelled by user")
         sys.exit(1)

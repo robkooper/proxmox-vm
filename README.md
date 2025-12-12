@@ -44,6 +44,7 @@ For development setup, see [DEVELOPMENT.md](DEVELOPMENT.md).
 - 🌐 DNS management via NetBox integration
 - 🔥 Firewall rule management
 - 📦 Image management (create, update, delete)
+- 🏷️ Tag management (add/remove tags to VMs)
 
 ## Requirements
 
@@ -291,6 +292,26 @@ proxmox firewall delete dbserver 3306 --ip 192.168.1.100
 proxmox firewall delete webserver
 ```
 
+### Tag Management
+
+**Add tags to VMs:**
+```bash
+# Add tag to VM by name
+proxmox tag create webserver production
+
+# Add tag to VM by ID
+proxmox tag create 100 web
+```
+
+**Remove tags from VMs:**
+```bash
+# Remove tag from VM by name
+proxmox tag delete webserver production
+
+# Remove tag from VM by ID
+proxmox tag delete 100 web
+```
+
 ## Command Reference
 
 ### VM Commands
@@ -354,6 +375,16 @@ proxmox firewall create <vm-name-or-id> [port] [--ip source-ip]
 
 # Delete firewall rule
 proxmox firewall delete <vm-name-or-id> [port] [--ip source-ip]
+```
+
+### Tag Commands
+
+```bash
+# Add tag to VM
+proxmox tag create <vm-name-or-id> <tag>
+
+# Remove tag from VM
+proxmox tag delete <vm-name-or-id> <tag>
 ```
 
 ### Global Options
