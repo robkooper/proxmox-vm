@@ -32,12 +32,30 @@ vmid_min = 100
 vmid_max = 999
 # Puppet server hostname/IP (leave empty if not using puppet)
 puppet_server = 
+# Default CPU type for new VMs (can be overridden with --cpu-type)
+# Common values: x86-64-v2-AES, x86-64-v3-AES, host, kvm64, etc.
+# Note: Rocky Linux requires 'host' CPU type to avoid boot issues (automatically set if not overridden)
+cpu_type = x86-64-v2-AES
 # Default number of CPU cores
 cores = 2
 # Default memory in MB
 memory = 2048
 # Default disk size in GB
 disk_size = 20
+# Default username for new VMs (can be overridden with -u/--username)
+username = admin
+# Default encrypted password for new VMs (SHA-512 format: $6$rounds=4096$salt$hash)
+# To encrypt a password, use one of these methods:
+#   - Python: python3 -c "from passlib.context import CryptContext; ctx = CryptContext(schemes=['sha512_crypt'], sha512_crypt__rounds=4096); print(ctx.hash('your-password'))"
+#   - Linux: mkpasswd --method=SHA-512
+#   - macOS: Install whois package (brew install whois) then use: mkpasswd -m sha-512
+# Leave empty if you prefer to use SSH keys only or provide password via CLI
+password = 
+# Default SSH public key file path for new VMs (can be overridden with -k/--keyfile)
+# This should be the path to your SSH public key file (e.g., ~/.ssh/id_rsa.pub or ~/.ssh/id_ed25519.pub)
+# Tilde (~) expansion is supported, so ~/.ssh/id_rsa.pub will expand to your home directory
+# Leave empty if you prefer to provide SSH key via CLI or use password authentication
+ssh_key_file = 
 
 [network]
 # Network configuration for VMs

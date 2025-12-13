@@ -39,8 +39,8 @@ def setup_create_parser(parser):
     # Required arguments
     parser.add_argument('vm',
                         help='VM name (required)')
-    parser.add_argument('-u', '--username', default='admin',
-                        help='Primary user to create (default: admin)')
+    parser.add_argument('-u', '--username', default=None,
+                        help='Primary user to create (default: from config or admin)')
     
     # OS and resources
     parser.add_argument('-o', '--os', dest='os_name', default='ubuntu24',
@@ -52,6 +52,8 @@ def setup_create_parser(parser):
                         help='Memory in MB (default: from config)')
     parser.add_argument('-b', '--bootsize', dest='disk_size', type=int,
                         help='Disk size in GB (default: from config)')
+    parser.add_argument('--cpu-type',
+                        help='CPU type (e.g., x86-64-v2-AES, host, kvm64). Overrides config default and Rocky OS auto-detection')
     
     # Authentication
     parser.add_argument('-k', '--keyfile', dest='ssh_key_file',
@@ -118,12 +120,30 @@ def handle_create(args):
     cores = args.cores if args.cores else config.get_default_cores()
     memory = args.memory if args.memory else config.get_default_memory()
     disk_size = args.disk_size if args.disk_size else config.get_default_disk_size()
+    username = args.username if args.username else config.get_default_username()
+    
+    # Determine CPU type with Rocky OS special handling
+    cpu_type = None
+    if args.cpu_type:
+        # Explicit CPU type from CLI overrides everything
+        cpu_type = args.cpu_type
+    elif args.os_name.startswith('rocky'):
+        # Rocky Linux requires 'host' CPU type to avoid boot issues
+        # Only override if user didn't explicitly set --cpu-type
+        cpu_type = 'host'
+        logger.warning(f"⚠️  Rocky Linux detected: Using 'host' CPU type to avoid boot hang issues")
+        logger.warning(f"    (Rocky Linux may hang at 'Probing EDD' if 'host' CPU type is not used)")
+        logger.warning(f"    Use --cpu-type to override if needed")
+    else:
+        # Use config default for other OS types
+        cpu_type = config.get_default_cpu_type()
     
     # Read SSH key if provided
     ssh_keys = []
-    if args.ssh_key_file:
+    ssh_key_file = args.ssh_key_file if args.ssh_key_file else config.get_default_ssh_key_file()
+    if ssh_key_file:
         try:
-            ssh_key = read_ssh_key(args.ssh_key_file)
+            ssh_key = read_ssh_key(ssh_key_file)
             ssh_keys.append(ssh_key)
         except (FileNotFoundError, ValueError, IOError) as e:
             logger.error(str(e))
@@ -154,10 +174,20 @@ def handle_create(args):
             logger.error("Use --plain-password to provide a plaintext password, or generate an encrypted hash with: mkpasswd --method=SHA-512")
             sys.exit(1)
         encrypted_password = args.password
+    else:
+        # Check for default password from config
+        default_password = config.get_default_password()
+        if default_password:
+            # Validate that the password is in encrypted format
+            if not default_password.startswith('$6$'):
+                logger.error("Default password in config must be an encrypted hash (SHA-512 format: $6$rounds=4096$salt$hash)")
+                logger.error("Generate an encrypted hash with: mkpasswd --method=SHA-512")
+                sys.exit(1)
+            encrypted_password = default_password
     
     # Validate authentication method
     if not ssh_keys and not encrypted_password:
-        logger.error("Must provide either SSH key (--keyfile) or password (--password or --plain-password)")
+        logger.error("Must provide either SSH key (--keyfile) or password (--password, --plain-password, or default in config)")
         sys.exit(1)
     
     # Validate puppet configuration
@@ -190,9 +220,10 @@ def handle_create(args):
     print(f"  Cores:     {cores}")
     print(f"  Memory:    {memory} MB")
     print(f"  Disk:      {disk_size} GB")
-    print(f"  User:      {args.username}")
+    print(f"  User:      {username}")
     print(f"  SSH Key:   {'Yes' if ssh_keys else 'No'}")
     print(f"  Password:  {'Yes (encrypted)' if encrypted_password else 'No'}")
+    print(f"  CPU Type:  {cpu_type}")
     print(f"  Puppet:    {'Yes' if args.puppet else 'No'}")
     if args.puppet:
         print(f"  Puppet Server: {puppet_server}")
@@ -210,14 +241,15 @@ def handle_create(args):
             cores=cores,
             memory=memory,
             disk_size=disk_size,
-            username=args.username,
+            username=username,
             ssh_keys=ssh_keys if ssh_keys else None,
             password=encrypted_password,
             puppet=args.puppet,
             puppet_server=puppet_server if args.puppet else None,
             node=args.node,
             start=not args.no_start,
-            tags=args.tags
+            tags=args.tags,
+            cpu_type=cpu_type
         )
         
         print("\n" + "=" * 80)
@@ -235,9 +267,10 @@ def handle_create(args):
         print(f"  Cores:    {cores}")
         print(f"  Memory:   {memory} MB")
         print(f"  Disk:     {disk_size} GB")
-        print(f"  User:     {args.username}")
+        print(f"  User:     {username}")
         print(f"  SSH Key:  {'Yes' if ssh_keys else 'No'}")
         print(f"  Password: {'Yes (encrypted)' if encrypted_password else 'No'}")
+        print(f"  CPU Type: {cpu_type}")
         print(f"  Puppet:   {'Yes' if args.puppet else 'No'}")
         if args.puppet:
             print(f"  Puppet Server: {puppet_server}")

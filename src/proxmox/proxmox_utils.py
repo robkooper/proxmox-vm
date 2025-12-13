@@ -273,6 +273,24 @@ class ProxmoxConfig:
         """Get default disk size in GB"""
         return self.config.getint('defaults', 'disk_size', fallback=20)
     
+    def get_default_username(self) -> str:
+        """Get default username for new VMs"""
+        return self.config.get('defaults', 'username', fallback='admin')
+    
+    def get_default_password(self) -> Optional[str]:
+        """Get default encrypted password for new VMs (SHA-512 format)"""
+        password = self.config.get('defaults', 'password', fallback='').strip()
+        return password if password else None
+    
+    def get_default_ssh_key_file(self) -> Optional[str]:
+        """Get default SSH key file path for new VMs"""
+        ssh_key_file = self.config.get('defaults', 'ssh_key_file', fallback='').strip()
+        return ssh_key_file if ssh_key_file else None
+    
+    def get_default_cpu_type(self) -> str:
+        """Get default CPU type for new VMs"""
+        return self.config.get('defaults', 'cpu_type', fallback='x86-64-v2-AES')
+    
     def get_template_id(self, os_name: str) -> Optional[int]:
         """Get template ID for a given OS name"""
         if not self.config.has_section('images'):
