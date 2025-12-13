@@ -42,6 +42,9 @@ cores = 2
 memory = 2048
 # Default disk size in GB
 disk_size = 20
+# Timezone for new VMs (e.g., America/Chicago, Europe/London, UTC)
+# Leave empty to use system default
+timezone = 
 # Default username for new VMs (can be overridden with -u/--username)
 username = admin
 # Default encrypted password for new VMs (SHA-512 format: $6$rounds=4096$salt$hash)

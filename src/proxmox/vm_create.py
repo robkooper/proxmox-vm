@@ -515,12 +515,23 @@ def create_and_upload_cloud_init(
     """
     storage = config.get_storage()
     
+    # Get timezone from config
+    timezone = config.get_timezone()
+    
+    # Calculate FQDN (hostname.domain if domain is configured)
+    fqdn = name
+    domain = config.get_network_domain()
+    if domain:
+        fqdn = f"{name}.{domain}"
+    
     # Generate cloud-init configuration
     cloud_init = generate_cloud_init_config(
         username=username,
         ssh_keys=ssh_keys,
         password=password,
-        puppet_server=puppet_server
+        puppet_server=puppet_server,
+        timezone=timezone,
+        fqdn=fqdn if puppet_server else None
     )
     
     # Create cloud-init ISO file and upload it to Proxmox storage

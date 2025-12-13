@@ -287,6 +287,11 @@ class ProxmoxConfig:
         ssh_key_file = self.config.get('defaults', 'ssh_key_file', fallback='').strip()
         return ssh_key_file if ssh_key_file else None
     
+    def get_timezone(self) -> Optional[str]:
+        """Get timezone for new VMs"""
+        timezone = self.config.get('defaults', 'timezone', fallback='').strip()
+        return timezone if timezone else None
+    
     def get_default_cpu_type(self) -> str:
         """Get default CPU type for new VMs"""
         return self.config.get('defaults', 'cpu_type', fallback='x86-64-v2-AES')
@@ -594,7 +599,9 @@ def generate_cloud_init_config(
     ssh_keys: Optional[List[str]] = None,
     password: Optional[str] = None,
     additional_users: Optional[List[Dict]] = None,
-    puppet_server: Optional[str] = None
+    puppet_server: Optional[str] = None,
+    timezone: Optional[str] = None,
+    fqdn: Optional[str] = None
 ) -> str:
     """
     Generate cloud-init user-data configuration
@@ -605,6 +612,8 @@ def generate_cloud_init_config(
         password: Encrypted password hash for the user (must be in format $6$...)
         additional_users: List of additional user dicts
         puppet_server: Puppet server hostname for agent configuration
+        timezone: Timezone (e.g., America/Chicago)
+        fqdn: Fully qualified domain name for puppet certname
     
     Returns:
         cloud-init YAML configuration as string
@@ -613,8 +622,17 @@ def generate_cloud_init_config(
         'users': [],
         'package_update': True,
         'package_upgrade': True,
+        'no_ssh_fingerprints': False,
+        'ssh_pwauth': True,
+        'ssh': {
+            'emit_keys_to_console': False
+        },
         'packages': ['qemu-guest-agent']  # Install QEMU guest agent for Proxmox
     }
+    
+    # Add timezone if provided
+    if timezone:
+        config['timezone'] = timezone
     
     # Note: Network configuration is handled separately in network-config file
     # The network key in user-data is not used by NoCloud datasource for network setup
@@ -658,7 +676,7 @@ def generate_cloud_init_config(
     # Puppet configuration using cloud-init's native puppet module
     # See: https://cloudinit.readthedocs.io/en/latest/reference/yaml_examples/puppet.html
     if puppet_server:
-        config['puppet'] = {
+        puppet_conf = {
             'install': True,
             'install_type': 'aio',  # All-In-One installer (recommended)
             'collection': 'puppet7',  # Use puppet7 collection
@@ -671,6 +689,10 @@ def generate_cloud_init_config(
                 }
             }
         }
+        # Set certname to FQDN if provided
+        if fqdn:
+            puppet_conf['conf']['agent']['certname'] = fqdn
+        config['puppet'] = puppet_conf
     
     return "#cloud-config\n" + yaml.dump(config, default_flow_style=False)
 
